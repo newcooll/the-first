@@ -1,0 +1,16 @@
+# .NET build output
+bin/
+obj/
+
+# VS / Rider
+.vs/
+.idea/
+*.user
+*.suo
+
+# Release artifacts
+artifacts/
+
+# OS
+Thumbs.db
+.DS_Store

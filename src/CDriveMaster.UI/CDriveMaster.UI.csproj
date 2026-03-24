@@ -1,0 +1,24 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\CDriveMaster.Core\CDriveMaster.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.1" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Version>0.1.0</Version>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <PublishSingleFile>true</PublishSingleFile>
+    <PublishSelfContained>true</PublishSelfContained>
+    <PublishTrimmed>false</PublishTrimmed>
+    <PublishRelease>true</PublishRelease>
+  </PropertyGroup>
+
+</Project>
