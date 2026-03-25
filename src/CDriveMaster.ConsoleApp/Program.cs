@@ -13,10 +13,42 @@ internal class Program
 {
     private static void Main(string[] args)
     {
+        bool isAnalyzeSystem = args.Contains("--analyze-system");
         bool isApply = args.Any(x => string.Equals(x, "--apply", StringComparison.OrdinalIgnoreCase));
         bool safeAutoOnly = args.Any(x => string.Equals(x, "--safe-auto-only", StringComparison.OrdinalIgnoreCase));
 
         Console.WriteLine("=== CDriveMaster v2 Cleanup CLI ===\n");
+
+        if (isAnalyzeSystem)
+        {
+            if (!PlatformProbe.IsElevated)
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine("系统维护分析需要管理员权限，请以 Administrator 身份重新运行此程序！");
+                Console.ResetColor();
+                return;
+            }
+
+            var operationId = Guid.NewGuid().ToString("N");
+            var runner = new DismCommandRunner();
+            var analyzer = new DismAnalyzer(runner);
+
+            Console.WriteLine("正在调用 DISM 分析系统组件存储，这可能需要几分钟时间，请稍候...");
+
+            var report = analyzer.AnalyzeAsync(operationId).GetAwaiter().GetResult();
+
+            Console.WriteLine("\n=== 系统组件存储分析报告 ===");
+            Console.WriteLine($"操作ID: {report.OperationId}");
+            Console.WriteLine($"名称: {report.Name}");
+            Console.WriteLine($"风险级别: {report.Risk}");
+            Console.WriteLine($"组件库总大小(GB): {ToGb(report.ActualSizeBytes):F2}");
+            Console.WriteLine($"备份与禁用功能大小(GB): {ToGb(report.BackupsAndDisabledFeaturesBytes):F2}");
+            Console.WriteLine($"缓存与临时数据大小(GB): {ToGb(report.CacheAndTemporaryDataBytes):F2}");
+            Console.WriteLine($"预计可回收大小(GB): {ToGb(report.EstimatedReclaimableBytes):F2}");
+            Console.WriteLine($"可回收包数量: {report.ReclaimablePackageCount}");
+            Console.WriteLine($"建议清理: {(report.CleanupRecommended ? "Yes" : "No")}");
+            return;
+        }
 
         var detector = new WeChatDetector();
         var bucketBuilder = new BucketBuilder();
@@ -95,5 +127,10 @@ internal class Program
 
         var totalLogs = results.Sum(x => x.Logs.Count);
         Console.WriteLine($"\nCompleted. Total buckets: {results.Count}, total audit logs: {totalLogs}");
+    }
+
+    private static double ToGb(long bytes)
+    {
+        return bytes / 1024.0 / 1024.0 / 1024.0;
     }
 }

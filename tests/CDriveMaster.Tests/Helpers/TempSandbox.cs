@@ -34,7 +34,7 @@ public sealed class TempSandbox : IDisposable
             Directory.CreateDirectory(dir);
         }
 
-        File.WriteAllText(fullPath, content, Encoding.UTF8);
+        File.WriteAllText(fullPath, content, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
         return fullPath;
     }
 

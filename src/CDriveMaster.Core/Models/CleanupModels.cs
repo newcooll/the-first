@@ -65,6 +65,7 @@ public sealed record BucketResult(
     long ReclaimedSizeBytes,
     int SuccessCount,
     int FailedCount,
+    int BlockedCount,
     IReadOnlyList<AuditLogItem> Logs
 );
 

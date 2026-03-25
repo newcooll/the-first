@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Restore dependencies
+      run: dotnet restore CDriveMaster.sln
+
+    - name: Build
+      run: dotnet build CDriveMaster.sln --configuration Release --no-restore
+
+    - name: Test
+      run: dotnet test CDriveMaster.sln --configuration Release --no-build --verbosity normal

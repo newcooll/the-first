@@ -39,6 +39,7 @@ public class CleanupPipeline
                 .Sum(x => x.TargetSizeBytes);
             int successCount = bucketLogs.Count(x => x.Status == ExecutionStatus.Success);
             int failedCount = bucketLogs.Count(x => x.Status == ExecutionStatus.Failed);
+            int blockedCount = bucketLogs.Count(x => x.Status == ExecutionStatus.Blocked);
 
             results.Add(new BucketResult(
                 Bucket: bucket,
@@ -46,6 +47,7 @@ public class CleanupPipeline
                 ReclaimedSizeBytes: reclaimedBytes,
                 SuccessCount: successCount,
                 FailedCount: failedCount,
+                BlockedCount: blockedCount,
                 Logs: bucketLogs));
         }
 
