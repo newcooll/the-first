@@ -19,18 +19,6 @@
                       DisplayMemberPath="AppName"
                       Margin="0,0,10,0" />
 
-                <Button Content="规则目录"
-                    Command="{Binding OpenRulesFolderCommand}"
-                    Width="90"
-                    Height="32"
-                    Margin="0,0,8,0" />
-
-                <Button Content="审计日志"
-                    Command="{Binding OpenLogsFolderCommand}"
-                    Width="90"
-                    Height="32"
-                    Margin="0,0,10,0" />
-
             <Button Command="{Binding ScanCommand}"
                     Width="130"
                     Height="32"

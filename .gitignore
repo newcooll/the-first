@@ -10,6 +10,7 @@ obj/
 
 # Release artifacts
 artifacts/
+publish_output/
 
 # OS
 Thumbs.db

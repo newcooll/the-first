@@ -1,7 +1,6 @@
 using System;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
-using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -308,18 +307,6 @@ public partial class GenericCleanupViewModel : ObservableObject
 
     private bool CanReviewAndApply() => HasSafeWithPreviewItems && !IsBusy;
 
-    [RelayCommand]
-    private void OpenRulesFolder()
-    {
-        OpenFolder("Rules");
-    }
-
-    [RelayCommand]
-    private void OpenLogsFolder()
-    {
-        OpenFolder("Logs");
-    }
-
     private static int RiskSortKey(RiskLevel risk)
     {
         return risk switch
@@ -329,18 +316,5 @@ public partial class GenericCleanupViewModel : ObservableObject
             RiskLevel.Blocked => 2,
             _ => 3
         };
-    }
-
-    private static void OpenFolder(string folderName)
-    {
-        string fullPath = Path.Combine(AppContext.BaseDirectory, folderName);
-        Directory.CreateDirectory(fullPath);
-
-        Process.Start(new ProcessStartInfo
-        {
-            FileName = "explorer.exe",
-            Arguments = fullPath,
-            UseShellExecute = true
-        });
     }
 }

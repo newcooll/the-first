@@ -18,6 +18,7 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,12">
@@ -31,5 +32,52 @@
         </StackPanel>
 
         <ContentControl Grid.Row="1" Content="{Binding CurrentViewModel}" />
+
+        <Border Grid.Row="2"
+                Margin="0,12,0,0"
+                Padding="10,4"
+                CornerRadius="4"
+                Background="#FFF3F5F8"
+                BorderBrush="#FFD9DEE5"
+                BorderThickness="1">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Column="0"
+                           Text="{Binding AppVersion}"
+                           VerticalAlignment="Center"
+                           FontSize="11"
+                           Foreground="#FF5D6670" />
+
+                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                    <Button Content="📂 规则配置"
+                            Command="{Binding OpenRulesFolderCommand}"
+                            Margin="0,0,8,0"
+                            FontSize="11"
+                            Padding="8,2"
+                            Background="Transparent"
+                            BorderBrush="#FFC8D0D8"
+                            BorderThickness="1" />
+                    <Button Content="📄 审计日志"
+                            Command="{Binding OpenLogsFolderCommand}"
+                            Margin="0,0,8,0"
+                            FontSize="11"
+                            Padding="8,2"
+                            Background="Transparent"
+                            BorderBrush="#FFC8D0D8"
+                            BorderThickness="1" />
+                    <Button Content="❓ 帮助文档"
+                            Command="{Binding OpenHelpDocsCommand}"
+                            FontSize="11"
+                            Padding="8,2"
+                            Background="Transparent"
+                            BorderBrush="#FFC8D0D8"
+                            BorderThickness="1" />
+                </StackPanel>
+            </Grid>
+        </Border>
     </Grid>
 </Window>
