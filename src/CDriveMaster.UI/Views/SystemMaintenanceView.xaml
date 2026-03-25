@@ -1,0 +1,34 @@
+<UserControl x:Class="CDriveMaster.UI.Views.SystemMaintenanceView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d">
+    <StackPanel>
+        <Button Content="分析组件存储"
+                Command="{Binding AnalyzeCommand}"
+                Width="140"
+                Height="34"
+                Margin="0,0,0,12">
+            <Button.Style>
+                <Style TargetType="Button">
+                    <Setter Property="IsEnabled" Value="True" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsBusy}" Value="True">
+                            <Setter Property="IsEnabled" Value="False" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Button.Style>
+        </Button>
+
+        <TextBlock Text="状态:" FontWeight="Bold" />
+        <TextBlock Text="{Binding StatusText}" Margin="0,0,0,8" />
+
+        <TextBlock Text="组件库总大小:" FontWeight="Bold" />
+        <TextBlock Text="{Binding ActualSizeText}" Margin="0,0,0,8" />
+
+        <TextBlock Text="预计可回收大小:" FontWeight="Bold" />
+        <TextBlock Text="{Binding EstimatedReclaimableText}" />
+    </StackPanel>
+</UserControl>

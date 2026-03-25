@@ -1,6 +1,10 @@
 ﻿using System;
 using System.IO;
 using System.Windows;
+using CDriveMaster.Core.Executors;
+using CDriveMaster.Core.Services;
+using CDriveMaster.UI.ViewModels;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace CDriveMaster.UI;
 
@@ -9,6 +13,20 @@ namespace CDriveMaster.UI;
 /// </summary>
 public partial class App : Application
 {
+	private IServiceProvider? serviceProvider;
+
+	private void ConfigureServices(IServiceCollection services)
+	{
+		services.AddTransient<IDismCommandRunner, DismCommandRunner>();
+		services.AddTransient<DismAnalyzer>();
+		services.AddTransient<DismCleanupExecutor>();
+
+		services.AddTransient<SystemMaintenanceViewModel>();
+		services.AddTransient<MainViewModel>();
+
+		services.AddSingleton<MainWindow>();
+	}
+
 	protected override void OnStartup(StartupEventArgs e)
 	{
 		// Capture non-UI thread exceptions, such as background scan failures.
@@ -21,6 +39,14 @@ public partial class App : Application
 			LogAndNotify(args.Exception, "Dispatcher Exception");
 			args.Handled = true;
 		};
+
+		var services = new ServiceCollection();
+		ConfigureServices(services);
+		serviceProvider = services.BuildServiceProvider();
+
+		var mainWindow = serviceProvider.GetRequiredService<MainWindow>();
+		mainWindow.DataContext = serviceProvider.GetRequiredService<MainViewModel>();
+		mainWindow.Show();
 
 		base.OnStartup(e);
 	}
