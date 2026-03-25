@@ -26,8 +26,9 @@ public partial class App : Application
 		services.AddTransient<IAppDetector, ChromeDetector>();
 		services.AddTransient<BucketBuilder>();
 		services.AddTransient<RuleCatalog>();
+		services.AddSingleton<AuditLogExporter>();
 		services.AddSingleton<IDialogService, MessageBoxDialogService>();
-		services.AddSingleton<IPreviewDialogService, NoOpPreviewDialogService>();
+		services.AddSingleton<IPreviewDialogService, WpfPreviewDialogService>();
 		services.AddSingleton<PreflightGuard>();
 		services.AddTransient(sp => new DryRunExecutor(
 			sp.GetRequiredService<PreflightGuard>(),
@@ -41,6 +42,7 @@ public partial class App : Application
 		services.AddTransient<DismAnalyzer>();
 		services.AddTransient<DismCleanupExecutor>();
 
+		services.AddTransient<SystemMaintenanceAnalysisViewModel>();
 		services.AddTransient<SystemMaintenanceViewModel>();
 		services.AddTransient<GenericCleanupViewModel>();
 		services.AddTransient<MainViewModel>();

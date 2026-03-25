@@ -7,7 +7,6 @@ using CDriveMaster.Core.Interfaces;
 using CDriveMaster.Core.Models;
 using CDriveMaster.Core.Services;
 using CDriveMaster.Tests.Fakes;
-using CDriveMaster.UI.Services;
 using CDriveMaster.UI.ViewModels;
 using CDriveMaster.UI.ViewModels.Items;
 using FluentAssertions;
@@ -17,6 +16,96 @@ namespace CDriveMaster.Tests.ViewModels;
 
 public sealed class GenericCleanupViewModelTests
 {
+    [Fact]
+    public void ReviewAndApplyCommand_CanExecute_ShouldBeFalse_WhenNoPreviewItemsOrIsBusy()
+    {
+        var dialog = new FakeDialogService();
+        var preview = new FakePreviewDialogService();
+        var pipeline = new FakeCleanupPipeline();
+        var vm = CreateViewModel(dialog, preview, pipeline);
+
+        vm.HasSafeWithPreviewItems = false;
+        vm.IsBusy = false;
+        vm.ReviewAndApplyCommand.CanExecute(null).Should().BeFalse();
+
+        vm.HasSafeWithPreviewItems = true;
+        vm.IsBusy = false;
+        vm.ReviewAndApplyCommand.CanExecute(null).Should().BeTrue();
+
+        vm.IsBusy = true;
+        vm.ReviewAndApplyCommand.CanExecute(null).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ReviewAndApplyAsync_WhenUserCancelsPreview_ShouldNotExecutePipeline()
+    {
+        var dialog = new FakeDialogService();
+        var preview = new FakePreviewDialogService { UserConfirmed = false };
+        var pipeline = new FakeCleanupPipeline();
+        var vm = CreateViewModel(dialog, preview, pipeline);
+
+        vm.BucketItems = new ObservableCollection<BucketResultItemViewModel>
+        {
+            new(CreateResult("preview", RiskLevel.SafeWithPreview, ExecutionStatus.Skipped, entries: CreateEntries(3)))
+        };
+        vm.HasSafeWithPreviewItems = true;
+
+        await vm.ReviewAndApplyCommand.ExecuteAsync(null);
+
+        preview.WasCalled.Should().BeTrue();
+        pipeline.WasExecuteCalled.Should().BeFalse();
+        pipeline.WasExecuteEntriesCalled.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ReviewAndApplyAsync_WhenUserSelectsPartialItems_ShouldExecuteOnlySelected()
+    {
+        var dialog = new FakeDialogService();
+        var preview = new FakePreviewDialogService
+        {
+            UserConfirmed = true,
+            SelectionLogic = entries => entries.Take(1)
+        };
+        var pipeline = new FakeCleanupPipeline();
+        var vm = CreateViewModel(dialog, preview, pipeline);
+
+        vm.BucketItems = new ObservableCollection<BucketResultItemViewModel>
+        {
+            new(CreateResult("preview", RiskLevel.SafeWithPreview, ExecutionStatus.Skipped, entries: CreateEntries(3)))
+        };
+        vm.HasSafeWithPreviewItems = true;
+
+        await vm.ReviewAndApplyCommand.ExecuteAsync(null);
+
+        pipeline.WasExecuteEntriesCalled.Should().BeTrue();
+        pipeline.LastEntriesApplied.Should().HaveCount(1);
+    }
+
+    [Fact]
+    public async Task ReviewAndApplyAsync_AfterExecution_ShouldUpdateItemResultsAndSummary()
+    {
+        var dialog = new FakeDialogService();
+        var preview = new FakePreviewDialogService
+        {
+            UserConfirmed = true,
+            SelectionLogic = entries => entries.Take(2)
+        };
+        var pipeline = new FakeCleanupPipeline();
+        var vm = CreateViewModel(dialog, preview, pipeline);
+
+        vm.BucketItems = new ObservableCollection<BucketResultItemViewModel>
+        {
+            new(CreateResult("preview", RiskLevel.SafeWithPreview, ExecutionStatus.Skipped, entries: CreateEntries(3)))
+        };
+        vm.HasSafeWithPreviewItems = true;
+
+        await vm.ReviewAndApplyCommand.ExecuteAsync(null);
+
+        vm.BucketItems[0].OriginalResult.FinalStatus.Should().Be(ExecutionStatus.Success);
+        vm.ExecutionSummary.Should().NotBeNull();
+        vm.ExecutionSummary!.SuccessCount.Should().Be(1);
+    }
+
     [Fact]
     public void ScanCommand_CanExecute_ShouldBeFalse_WhenIsBusyOrSelectedAppIsNull()
     {
@@ -195,8 +284,17 @@ public sealed class GenericCleanupViewModelTests
         FakeCleanupPipeline pipeline,
         ICleanupProvider? selectedApp = null)
     {
+        return CreateViewModel(dialog, new FakePreviewDialogService(), pipeline, selectedApp);
+    }
+
+    private static GenericCleanupViewModel CreateViewModel(
+        FakeDialogService dialog,
+        FakePreviewDialogService preview,
+        FakeCleanupPipeline pipeline,
+        ICleanupProvider? selectedApp = null)
+    {
         var ruleCatalog = new RuleCatalog(Array.Empty<IAppDetector>(), new BucketBuilder());
-        var vm = new GenericCleanupViewModel(ruleCatalog, pipeline, dialog, new FakePreviewDialogService())
+        var vm = new GenericCleanupViewModel(ruleCatalog, pipeline, dialog, preview, new AuditLogExporter())
         {
             SelectedApp = selectedApp ?? new StubCleanupProvider("TestApp")
         };
@@ -218,7 +316,12 @@ public sealed class GenericCleanupViewModelTests
             Entries: Array.Empty<CleanupEntry>());
     }
 
-    private static BucketResult CreateResult(string bucketId, RiskLevel risk, ExecutionStatus status, long estimatedBytes = 1024 * 1024)
+    private static BucketResult CreateResult(
+        string bucketId,
+        RiskLevel risk,
+        ExecutionStatus status,
+        long estimatedBytes = 1024 * 1024,
+        IReadOnlyList<CleanupEntry>? entries = null)
     {
         var bucket = new CleanupBucket(
             BucketId: bucketId,
@@ -229,7 +332,7 @@ public sealed class GenericCleanupViewModelTests
             SuggestedAction: CleanupAction.DeleteToRecycleBin,
             Description: "Test Bucket",
             EstimatedSizeBytes: estimatedBytes,
-            Entries: Array.Empty<CleanupEntry>());
+            Entries: entries ?? Array.Empty<CleanupEntry>());
 
         return new BucketResult(
             Bucket: bucket,
@@ -239,6 +342,22 @@ public sealed class GenericCleanupViewModelTests
             FailedCount: status == ExecutionStatus.Failed ? 1 : 0,
             BlockedCount: status == ExecutionStatus.Blocked ? 1 : 0,
             Logs: Array.Empty<AuditLogItem>());
+    }
+
+    private static IReadOnlyList<CleanupEntry> CreateEntries(int count)
+    {
+        var list = new List<CleanupEntry>();
+        for (int i = 0; i < count; i++)
+        {
+            list.Add(new CleanupEntry(
+                Path: $@"C:\Sandbox\file_{i}.tmp",
+                IsDirectory: false,
+                SizeBytes: 1024,
+                LastWriteTimeUtc: DateTime.UtcNow.AddDays(-i),
+                Category: "Preview"));
+        }
+
+        return list;
     }
 
     private sealed class StubCleanupProvider : ICleanupProvider
@@ -267,7 +386,11 @@ public sealed class GenericCleanupViewModelTests
 
         public bool ThrowOnExecute { get; set; }
 
+        public bool WasExecuteEntriesCalled { get; private set; }
+
         public IReadOnlyList<CleanupBucket> LastBuckets { get; private set; } = Array.Empty<CleanupBucket>();
+
+        public IReadOnlyList<CleanupEntry> LastEntriesApplied { get; private set; } = Array.Empty<CleanupEntry>();
 
         public Func<IReadOnlyList<CleanupBucket>, IReadOnlyList<BucketResult>>? ResultsFactory { get; set; }
 
@@ -295,6 +418,9 @@ public sealed class GenericCleanupViewModelTests
         public BucketResult ExecuteEntries(CleanupBucket parentBucket, IEnumerable<CleanupEntry> entriesToApply, bool apply)
         {
             var selected = entriesToApply.ToList();
+            WasExecuteEntriesCalled = true;
+            LastEntriesApplied = selected;
+
             var temp = new CleanupBucket(
                 BucketId: parentBucket.BucketId,
                 Category: parentBucket.Category,
@@ -307,14 +433,6 @@ public sealed class GenericCleanupViewModelTests
                 Entries: selected);
 
             return CreateResult(temp.BucketId, temp.RiskLevel, ExecutionStatus.Success, temp.EstimatedSizeBytes);
-        }
-    }
-
-    private sealed class FakePreviewDialogService : IPreviewDialogService
-    {
-        public Task<IEnumerable<CleanupEntry>> ShowPreviewAsync(string title, IEnumerable<CleanupEntry> entries)
-        {
-            return Task.FromResult(entries.Take(0));
         }
     }
 }

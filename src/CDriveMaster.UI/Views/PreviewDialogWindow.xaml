@@ -1,0 +1,60 @@
+<Window x:Class="CDriveMaster.UI.Views.PreviewDialogWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="清理预览"
+        Width="800"
+        Height="600"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="CanResize">
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,10">
+            <CheckBox Content="全选/全不选"
+                      IsChecked="{Binding IsAllSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                      VerticalAlignment="Center"
+                      Margin="0,0,16,0" />
+            <TextBlock Text="已选择:" VerticalAlignment="Center" />
+            <TextBlock Text="{Binding SelectedCount}" VerticalAlignment="Center" Margin="4,0,12,0" />
+            <TextBlock Text="已选总大小(字节):" VerticalAlignment="Center" />
+            <TextBlock Text="{Binding SelectedTotalSize}" VerticalAlignment="Center" Margin="4,0,0,0" />
+        </StackPanel>
+
+        <DataGrid Grid.Row="1"
+                  ItemsSource="{Binding Items}"
+                  AutoGenerateColumns="False"
+                  IsReadOnly="False"
+                  CanUserAddRows="False"
+                  CanUserDeleteRows="False"
+                  SelectionMode="Extended"
+                  VirtualizingStackPanel.IsVirtualizing="True"
+                  VirtualizingStackPanel.VirtualizationMode="Recycling"
+                  EnableRowVirtualization="True"
+                  EnableColumnVirtualization="True"
+                  ScrollViewer.CanContentScroll="True">
+            <DataGrid.Columns>
+                <DataGridTemplateColumn Header="选择" Width="70">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                      HorizontalAlignment="Center"
+                                      VerticalAlignment="Center" />
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                <DataGridTextColumn Header="路径" Binding="{Binding FilePath}" Width="*" />
+                <DataGridTextColumn Header="大小" Binding="{Binding FormattedSize}" Width="130" />
+                <DataGridTextColumn Header="时间" Binding="{Binding LastAccessTime}" Width="180" />
+            </DataGrid.Columns>
+        </DataGrid>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
+            <Button Content="确认清理" Command="{Binding ConfirmCommand}" Width="110" Margin="0,0,8,0" />
+            <Button Content="取消" Command="{Binding CancelCommand}" Width="90" />
+        </StackPanel>
+    </Grid>
+</Window>

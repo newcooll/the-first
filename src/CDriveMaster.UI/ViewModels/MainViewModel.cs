@@ -5,13 +5,13 @@ namespace CDriveMaster.UI.ViewModels;
 
 public partial class MainViewModel : ObservableObject
 {
-    private readonly SystemMaintenanceViewModel systemMaintenanceViewModel;
+    private readonly SystemMaintenanceAnalysisViewModel systemMaintenanceViewModel;
     private readonly GenericCleanupViewModel genericCleanupViewModel;
 
     [ObservableProperty]
     private object currentViewModel;
 
-    public MainViewModel(SystemMaintenanceViewModel systemMaintenanceViewModel, GenericCleanupViewModel genericCleanupViewModel)
+    public MainViewModel(SystemMaintenanceAnalysisViewModel systemMaintenanceViewModel, GenericCleanupViewModel genericCleanupViewModel)
     {
         this.systemMaintenanceViewModel = systemMaintenanceViewModel;
         this.genericCleanupViewModel = genericCleanupViewModel;
@@ -19,9 +19,15 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void MapsToSystemMaintenance()
+    private void NavigateToSystemMaintenance()
     {
         CurrentViewModel = systemMaintenanceViewModel;
+    }
+
+    [RelayCommand]
+    private void MapsToSystemMaintenance()
+    {
+        NavigateToSystemMaintenance();
     }
 
     [RelayCommand]

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -15,9 +16,11 @@ namespace CDriveMaster.UI.ViewModels;
 
 public partial class GenericCleanupViewModel : ObservableObject
 {
+    private readonly RuleCatalog catalog;
     private readonly ICleanupPipeline pipeline;
     private readonly IDialogService dialogService;
     private readonly IPreviewDialogService previewService;
+    private readonly AuditLogExporter auditLogExporter;
 
     public ObservableCollection<ICleanupProvider> AvailableApps { get; } = new();
 
@@ -52,11 +55,14 @@ public partial class GenericCleanupViewModel : ObservableObject
         RuleCatalog catalog,
         ICleanupPipeline pipeline,
         IDialogService dialogService,
-        IPreviewDialogService previewService)
+        IPreviewDialogService previewService,
+        AuditLogExporter auditLogExporter)
     {
+        this.catalog = catalog;
         this.pipeline = pipeline;
         this.dialogService = dialogService;
         this.previewService = previewService;
+        this.auditLogExporter = auditLogExporter;
 
         foreach (var provider in catalog.GetAllProviders())
         {
@@ -64,6 +70,13 @@ public partial class GenericCleanupViewModel : ObservableObject
         }
 
         SelectedApp = AvailableApps.FirstOrDefault();
+
+        if (this.catalog.FailedRuleErrors.Count > 0)
+        {
+            _ = this.dialogService.ShowErrorAsync(
+                "规则加载警告",
+                string.Join("\n", this.catalog.FailedRuleErrors));
+        }
     }
 
     [RelayCommand(CanExecute = nameof(CanScan))]
@@ -185,6 +198,11 @@ public partial class GenericCleanupViewModel : ObservableObject
             HasSafeWithPreviewItems = BucketItems.Any(x =>
                 x.RawRisk == RiskLevel.SafeWithPreview &&
                 x.OriginalResult.FinalStatus != ExecutionStatus.Success);
+
+            if (executeResults.Any(x => x.FinalStatus != ExecutionStatus.Skipped))
+            {
+                await auditLogExporter.ExportAsync(selectedProvider.AppName, executeResults);
+            }
         }
         catch (Exception ex)
         {
@@ -264,6 +282,12 @@ public partial class GenericCleanupViewModel : ObservableObject
                 x.RawRisk == RiskLevel.SafeWithPreview &&
                 x.OriginalResult.FinalStatus != ExecutionStatus.Success);
 
+            if (executeResults.Any(x => x.FinalStatus != ExecutionStatus.Skipped))
+            {
+                var appName = SelectedApp?.AppName ?? "Unknown";
+                await auditLogExporter.ExportAsync(appName, executeResults);
+            }
+
             StatusText = $"预览清理完成，共处理 {executeResults.Count} 个分组";
         }
         catch (Exception ex)
@@ -284,6 +308,18 @@ public partial class GenericCleanupViewModel : ObservableObject
 
     private bool CanReviewAndApply() => HasSafeWithPreviewItems && !IsBusy;
 
+    [RelayCommand]
+    private void OpenRulesFolder()
+    {
+        OpenFolder("Rules");
+    }
+
+    [RelayCommand]
+    private void OpenLogsFolder()
+    {
+        OpenFolder("Logs");
+    }
+
     private static int RiskSortKey(RiskLevel risk)
     {
         return risk switch
@@ -293,5 +329,18 @@ public partial class GenericCleanupViewModel : ObservableObject
             RiskLevel.Blocked => 2,
             _ => 3
         };
+    }
+
+    private static void OpenFolder(string folderName)
+    {
+        string fullPath = Path.Combine(AppContext.BaseDirectory, folderName);
+        Directory.CreateDirectory(fullPath);
+
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = "explorer.exe",
+            Arguments = fullPath,
+            UseShellExecute = true
+        });
     }
 }

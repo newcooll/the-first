@@ -6,8 +6,8 @@
         Title="CDriveMaster.UI" Height="500" Width="760">
 
     <Window.Resources>
-        <DataTemplate DataType="{x:Type viewmodels:SystemMaintenanceViewModel}">
-            <views:SystemMaintenanceView />
+        <DataTemplate DataType="{x:Type viewmodels:SystemMaintenanceAnalysisViewModel}">
+            <views:SystemMaintenanceAnalysisView />
         </DataTemplate>
         <DataTemplate DataType="{x:Type viewmodels:GenericCleanupViewModel}">
             <views:GenericCleanupView />
