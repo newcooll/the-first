@@ -22,6 +22,7 @@ public partial class App : Application
 	{
 		services.AddTransient<IAppDetector, WeChatDetector>();
 		services.AddTransient<IAppDetector, QQDetector>();
+		services.AddTransient<IAppDetector, ChromeDetector>();
 		services.AddTransient<BucketBuilder>();
 		services.AddTransient<RuleCatalog>();
 		services.AddSingleton<PreflightGuard>();

@@ -1,0 +1,22 @@
+{
+  "AppName": "Chrome",
+  "Description": "Chrome 浏览器缓存与冗余文件",
+  "DefaultAction": "DeleteToRecycleBin",
+  "Targets": [
+    {
+      "BaseFolder": "*/Cache/Cache_Data",
+      "Kind": "BrowserCache",
+      "RiskLevel": "SafeAuto"
+    },
+    {
+      "BaseFolder": "*/Code Cache/js",
+      "Kind": "CodeCache",
+      "RiskLevel": "SafeAuto"
+    },
+    {
+      "BaseFolder": "*/GPUCache",
+      "Kind": "GPUCache",
+      "RiskLevel": "SafeAuto"
+    }
+  ]
+}
