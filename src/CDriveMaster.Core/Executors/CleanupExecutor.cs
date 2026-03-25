@@ -30,8 +30,10 @@ public class CleanupExecutor
                 {
                     logs.Add(new AuditLogItem(
                         JobId: jobId,
+                        BucketId: bucket.BucketId,
                         TimestampUtc: DateTime.UtcNow,
                         TargetPath: entry.Path,
+                        TargetSizeBytes: entry.SizeBytes,
                         Action: bucket.SuggestedAction,
                         Risk: bucket.RiskLevel,
                         AppName: bucket.AppName,
@@ -62,8 +64,10 @@ public class CleanupExecutor
 
                     logs.Add(new AuditLogItem(
                         JobId: jobId,
+                        BucketId: bucket.BucketId,
                         TimestampUtc: DateTime.UtcNow,
                         TargetPath: entry.Path,
+                        TargetSizeBytes: entry.SizeBytes,
                         Action: bucket.SuggestedAction,
                         Risk: bucket.RiskLevel,
                         AppName: bucket.AppName,
@@ -75,8 +79,10 @@ public class CleanupExecutor
                 {
                     logs.Add(new AuditLogItem(
                         JobId: jobId,
+                        BucketId: bucket.BucketId,
                         TimestampUtc: DateTime.UtcNow,
                         TargetPath: entry.Path,
+                        TargetSizeBytes: entry.SizeBytes,
                         Action: bucket.SuggestedAction,
                         Risk: bucket.RiskLevel,
                         AppName: bucket.AppName,

@@ -29,8 +29,10 @@ public class DryRunExecutor
                 {
                     logs.Add(new AuditLogItem(
                         JobId: this.jobId,
+                        BucketId: bucket.BucketId,
                         TimestampUtc: DateTime.UtcNow,
                         TargetPath: entry.Path,
+                        TargetSizeBytes: entry.SizeBytes,
                         Action: bucket.SuggestedAction,
                         Risk: bucket.RiskLevel,
                         AppName: bucket.AppName,
@@ -42,8 +44,10 @@ public class DryRunExecutor
 
                 logs.Add(new AuditLogItem(
                     JobId: this.jobId,
+                    BucketId: bucket.BucketId,
                     TimestampUtc: DateTime.UtcNow,
                     TargetPath: entry.Path,
+                    TargetSizeBytes: entry.SizeBytes,
                     Action: bucket.SuggestedAction,
                     Risk: bucket.RiskLevel,
                     AppName: bucket.AppName,

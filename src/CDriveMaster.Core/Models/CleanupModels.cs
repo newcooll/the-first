@@ -27,8 +27,10 @@ public enum CleanupAction
 
 public sealed record AuditLogItem(
     string JobId,
+    string BucketId,
     DateTime TimestampUtc,
     string TargetPath,
+    long TargetSizeBytes,
     CleanupAction Action,
     RiskLevel Risk,
     string AppName,
@@ -55,6 +57,15 @@ public sealed record CleanupBucket(
     string Description,
     long EstimatedSizeBytes,
     IReadOnlyList<CleanupEntry> Entries
+);
+
+public sealed record BucketResult(
+    CleanupBucket Bucket,
+    ExecutionStatus FinalStatus,
+    long ReclaimedSizeBytes,
+    int SuccessCount,
+    int FailedCount,
+    IReadOnlyList<AuditLogItem> Logs
 );
 
 public sealed record RecycleBinInfo(long SizeBytes, long ItemCount);
