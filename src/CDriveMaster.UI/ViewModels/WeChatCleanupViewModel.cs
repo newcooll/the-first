@@ -1,11 +1,13 @@
 using System;
 using System.Collections.ObjectModel;
+using System.Linq;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CDriveMaster.Core.Models;
 using CDriveMaster.Core.Providers;
 using CDriveMaster.Core.Services;
+using CDriveMaster.UI.ViewModels.Items;
 
 namespace CDriveMaster.UI.ViewModels;
 
@@ -21,7 +23,7 @@ public partial class WeChatCleanupViewModel : ObservableObject
     private string statusText = "准备就绪";
 
     [ObservableProperty]
-    private ObservableCollection<BucketResult> bucketResults = new();
+    private ObservableCollection<BucketResultItemViewModel> bucketItems = new();
 
     public WeChatCleanupViewModel(WeChatCleanupProvider provider, CleanupPipeline pipeline)
     {
@@ -48,10 +50,16 @@ public partial class WeChatCleanupViewModel : ObservableObject
                 return pipeline.Execute(buckets, apply: false);
             });
 
-            BucketResults.Clear();
-            foreach (var result in results)
+            var sortedItems = results
+                .Select(x => new BucketResultItemViewModel(x))
+                .OrderBy(x => RiskSortKey(x.RawRisk))
+                .ThenByDescending(x => x.RawEstimatedSize)
+                .ToList();
+
+            BucketItems.Clear();
+            foreach (var item in sortedItems)
             {
-                BucketResults.Add(result);
+                BucketItems.Add(item);
             }
 
             StatusText = results.Count == 0 ? "未发现微信数据" : "扫描完成";
@@ -64,5 +72,16 @@ public partial class WeChatCleanupViewModel : ObservableObject
         {
             IsBusy = false;
         }
+    }
+
+    private static int RiskSortKey(RiskLevel risk)
+    {
+        return risk switch
+        {
+            RiskLevel.SafeAuto => 0,
+            RiskLevel.SafeWithPreview => 1,
+            RiskLevel.Blocked => 2,
+            _ => 3
+        };
     }
 }

@@ -31,15 +31,16 @@
         </StackPanel>
 
         <DataGrid Grid.Row="1"
-                  ItemsSource="{Binding BucketResults}"
+                  ItemsSource="{Binding BucketItems}"
                   AutoGenerateColumns="False"
                   IsReadOnly="True"
                   CanUserAddRows="False">
             <DataGrid.Columns>
-                <DataGridTextColumn Header="类别名称" Binding="{Binding Bucket.Description}" Width="*" />
-                <DataGridTextColumn Header="风险等级" Binding="{Binding Bucket.RiskLevel}" Width="120" />
-                <DataGridTextColumn Header="预计释放(字节)" Binding="{Binding Bucket.EstimatedSizeBytes}" Width="160" />
-                <DataGridTextColumn Header="分析状态" Binding="{Binding FinalStatus}" Width="120" />
+                <DataGridTextColumn Header="所属应用" Binding="{Binding AppName}" Width="120" />
+                <DataGridTextColumn Header="清理项" Binding="{Binding CategoryDescription}" Width="*" />
+                <DataGridTextColumn Header="风险等级" Binding="{Binding RiskLevelText}" Width="140" />
+                <DataGridTextColumn Header="预估大小" Binding="{Binding FormattedEstimatedSize}" Width="140" />
+                <DataGridTextColumn Header="执行状态" Binding="{Binding StatusText}" Width="120" />
             </DataGrid.Columns>
         </DataGrid>
     </Grid>
