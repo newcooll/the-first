@@ -35,18 +35,46 @@ internal class Program
 
             Console.WriteLine("正在调用 DISM 分析系统组件存储，这可能需要几分钟时间，请稍候...");
 
-            var report = analyzer.AnalyzeAsync(operationId).GetAwaiter().GetResult();
+            var analysisResult = analyzer.AnalyzeAsync(operationId).GetAwaiter().GetResult();
+
+            var viewModel = analysisResult.Status == ExecutionStatus.Success && analysisResult.Report is not null
+                ? new SystemAnalysisViewModel(
+                    Title: analysisResult.Report.Name,
+                    Status: analysisResult.Status,
+                    ActualSizeBytes: analysisResult.Report.ActualSizeBytes,
+                    EstimatedReclaimableBytes: analysisResult.Report.EstimatedReclaimableBytes,
+                    CleanupRecommended: analysisResult.Report.CleanupRecommended,
+                    Message: "分析完成")
+                : new SystemAnalysisViewModel(
+                    Title: "Windows Component Store (WinSxS)",
+                    Status: analysisResult.Status,
+                    ActualSizeBytes: 0,
+                    EstimatedReclaimableBytes: 0,
+                    CleanupRecommended: false,
+                    Message: analysisResult.Reason);
 
             Console.WriteLine("\n=== 系统组件存储分析报告 ===");
-            Console.WriteLine($"操作ID: {report.OperationId}");
-            Console.WriteLine($"名称: {report.Name}");
-            Console.WriteLine($"风险级别: {report.Risk}");
-            Console.WriteLine($"组件库总大小(GB): {ToGb(report.ActualSizeBytes):F2}");
-            Console.WriteLine($"备份与禁用功能大小(GB): {ToGb(report.BackupsAndDisabledFeaturesBytes):F2}");
-            Console.WriteLine($"缓存与临时数据大小(GB): {ToGb(report.CacheAndTemporaryDataBytes):F2}");
-            Console.WriteLine($"预计可回收大小(GB): {ToGb(report.EstimatedReclaimableBytes):F2}");
-            Console.WriteLine($"可回收包数量: {report.ReclaimablePackageCount}");
-            Console.WriteLine($"建议清理: {(report.CleanupRecommended ? "Yes" : "No")}");
+            Console.WriteLine($"操作ID: {operationId}");
+            Console.WriteLine($"名称: {viewModel.Title}");
+            Console.WriteLine($"状态: {viewModel.Status}");
+            Console.WriteLine($"组件库总大小(GB): {ToGb(viewModel.ActualSizeBytes):F2}");
+            Console.WriteLine($"预计可回收大小(GB): {ToGb(viewModel.EstimatedReclaimableBytes):F2}");
+            Console.WriteLine($"消息: {viewModel.Message}");
+
+            if (viewModel.Status == ExecutionStatus.Success && viewModel.CleanupRecommended)
+            {
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine("建议执行系统组件清理。\n");
+                Console.ResetColor();
+            }
+
+            if (viewModel.Status != ExecutionStatus.Success)
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"底层错误: {analysisResult.StdErr}");
+                Console.ResetColor();
+            }
+
             return;
         }
 

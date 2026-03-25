@@ -25,3 +25,21 @@ public sealed record SystemMaintenanceResult(
     string StdOut,
     string StdErr
 );
+
+public sealed record SystemAnalysisResult(
+    ExecutionStatus Status,
+    SystemMaintenanceReport? Report,
+    string StdOut,
+    string StdErr,
+    int ExitCode,
+    string Reason
+);
+
+public sealed record SystemAnalysisViewModel(
+    string Title,
+    ExecutionStatus Status,
+    long ActualSizeBytes,
+    long EstimatedReclaimableBytes,
+    bool CleanupRecommended,
+    string Message
+);

@@ -6,7 +6,7 @@ using CDriveMaster.Core.Models;
 
 namespace CDriveMaster.Core.Services;
 
-public class DismCommandRunner
+public class DismCommandRunner : IDismCommandRunner
 {
     public async Task<SystemMaintenanceResult> RunAsync(string arguments, string operationId, CancellationToken cancellationToken = default)
     {
