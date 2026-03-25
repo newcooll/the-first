@@ -1,7 +1,11 @@
 ﻿using System;
 using System.IO;
 using System.Windows;
+using CDriveMaster.Core.Detectors;
 using CDriveMaster.Core.Executors;
+using CDriveMaster.Core.Guards;
+using CDriveMaster.Core.Interfaces;
+using CDriveMaster.Core.Providers;
 using CDriveMaster.Core.Services;
 using CDriveMaster.UI.ViewModels;
 using Microsoft.Extensions.DependencyInjection;
@@ -17,11 +21,24 @@ public partial class App : Application
 
 	private void ConfigureServices(IServiceCollection services)
 	{
+		services.AddTransient<IAppDetector, WeChatDetector>();
+		services.AddTransient<BucketBuilder>();
+		services.AddTransient<WeChatCleanupProvider>();
+		services.AddSingleton<PreflightGuard>();
+		services.AddTransient(sp => new DryRunExecutor(
+			sp.GetRequiredService<PreflightGuard>(),
+			Guid.NewGuid().ToString("N")));
+		services.AddTransient(sp => new CleanupExecutor(
+			sp.GetRequiredService<PreflightGuard>(),
+			Guid.NewGuid().ToString("N")));
+		services.AddTransient<CleanupPipeline>();
+
 		services.AddTransient<IDismCommandRunner, DismCommandRunner>();
 		services.AddTransient<DismAnalyzer>();
 		services.AddTransient<DismCleanupExecutor>();
 
 		services.AddTransient<SystemMaintenanceViewModel>();
+		services.AddTransient<WeChatCleanupViewModel>();
 		services.AddTransient<MainViewModel>();
 
 		services.AddSingleton<MainWindow>();

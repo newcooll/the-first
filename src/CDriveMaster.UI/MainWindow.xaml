@@ -9,9 +9,27 @@
         <DataTemplate DataType="{x:Type viewmodels:SystemMaintenanceViewModel}">
             <views:SystemMaintenanceView />
         </DataTemplate>
+        <DataTemplate DataType="{x:Type viewmodels:WeChatCleanupViewModel}">
+            <views:WeChatCleanupView />
+        </DataTemplate>
     </Window.Resources>
 
     <Grid Margin="16">
-        <ContentControl Content="{Binding CurrentViewModel}" />
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,12">
+            <Button Content="系统瘦身"
+                    Command="{Binding MapsToSystemMaintenanceCommand}"
+                    Width="100"
+                    Margin="0,0,8,0" />
+            <Button Content="微信专清"
+                    Command="{Binding MapsToWeChatCleanupCommand}"
+                    Width="100" />
+        </StackPanel>
+
+        <ContentControl Grid.Row="1" Content="{Binding CurrentViewModel}" />
     </Grid>
 </Window>
