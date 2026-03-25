@@ -28,9 +28,6 @@ $releaseDir = Join-Path $scriptDir 'artifacts/release'
 if (Test-Path $publishDir) {
     Remove-Item -Path $publishDir -Recurse -Force
 }
-if (Test-Path $releaseDir) {
-    Remove-Item -Path $releaseDir -Recurse -Force
-}
 
 New-Item -Path $publishDir -ItemType Directory -Force | Out-Null
 New-Item -Path $releaseDir -ItemType Directory -Force | Out-Null
