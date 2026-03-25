@@ -16,6 +16,70 @@ namespace CDriveMaster.Tests.ViewModels;
 public sealed class GenericCleanupViewModelTests
 {
     [Fact]
+    public void ScanCommand_CanExecute_ShouldBeFalse_WhenIsBusyOrSelectedAppIsNull()
+    {
+        var dialog = new FakeDialogService();
+        var pipeline = new FakeCleanupPipeline();
+        var vm = CreateViewModel(dialog, pipeline);
+
+        vm.SelectedApp = null;
+        vm.ScanCommand.CanExecute(null).Should().BeFalse();
+
+        vm.SelectedApp = new StubCleanupProvider("TestApp");
+        vm.ScanCommand.CanExecute(null).Should().BeTrue();
+
+        vm.IsBusy = true;
+        vm.ScanCommand.CanExecute(null).Should().BeFalse();
+    }
+
+    [Fact]
+    public void ApplySafeAutoCommand_CanExecute_ShouldBeFalse_WhenNoSafeAutoItemsOrIsBusy()
+    {
+        var dialog = new FakeDialogService();
+        var pipeline = new FakeCleanupPipeline();
+        var vm = CreateViewModel(dialog, pipeline);
+
+        vm.HasSafeAutoItems = false;
+        vm.IsBusy = false;
+        vm.ApplySafeAutoCommand.CanExecute(null).Should().BeFalse();
+
+        vm.HasSafeAutoItems = true;
+        vm.IsBusy = false;
+        vm.ApplySafeAutoCommand.CanExecute(null).Should().BeTrue();
+
+        vm.IsBusy = true;
+        vm.ApplySafeAutoCommand.CanExecute(null).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ScanAsync_ShouldUpdateHasSafeAutoItems_BasedOnScanResults()
+    {
+        var dialog = new FakeDialogService();
+        var pipeline = new FakeCleanupPipeline
+        {
+            ResultsFactory = buckets => buckets
+                .Select(x => CreateResult(x.BucketId, x.RiskLevel, ExecutionStatus.Skipped, x.EstimatedSizeBytes))
+                .ToList()
+        };
+
+        var safeProvider = new StubCleanupProvider("TestApp", new[]
+        {
+            CreateBucket("safe", RiskLevel.SafeAuto)
+        });
+
+        var vm = CreateViewModel(dialog, pipeline, safeProvider);
+        await vm.ScanCommand.ExecuteAsync(null);
+        vm.HasSafeAutoItems.Should().BeTrue();
+
+        vm.SelectedApp = new StubCleanupProvider("TestApp", new[]
+        {
+            CreateBucket("preview", RiskLevel.SafeWithPreview)
+        });
+        await vm.ScanCommand.ExecuteAsync(null);
+        vm.HasSafeAutoItems.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task ApplySafeAutoAsync_WhenNoSafeAutoItems_ShouldShowInfoAndNotExecute()
     {
         var dialog = new FakeDialogService();
@@ -26,6 +90,7 @@ public sealed class GenericCleanupViewModelTests
         {
             new(CreateResult("b1", RiskLevel.SafeWithPreview, ExecutionStatus.Skipped))
         };
+        vm.HasSafeAutoItems = true;
 
         await vm.ApplySafeAutoCommand.ExecuteAsync(null);
 
@@ -44,6 +109,7 @@ public sealed class GenericCleanupViewModelTests
         {
             new(CreateResult("b1", RiskLevel.SafeAuto, ExecutionStatus.Skipped))
         };
+        vm.HasSafeAutoItems = true;
 
         await vm.ApplySafeAutoCommand.ExecuteAsync(null);
 
@@ -68,6 +134,7 @@ public sealed class GenericCleanupViewModelTests
             new(CreateResult("safe", RiskLevel.SafeAuto, ExecutionStatus.Skipped)),
             new(CreateResult("preview", RiskLevel.SafeWithPreview, ExecutionStatus.Skipped))
         };
+        vm.HasSafeAutoItems = true;
 
         await vm.ApplySafeAutoCommand.ExecuteAsync(null);
 
@@ -93,6 +160,7 @@ public sealed class GenericCleanupViewModelTests
         {
             new(CreateResult("safe", RiskLevel.SafeAuto, ExecutionStatus.Skipped))
         };
+        vm.HasSafeAutoItems = true;
 
         await vm.ApplySafeAutoCommand.ExecuteAsync(null);
 
@@ -112,6 +180,7 @@ public sealed class GenericCleanupViewModelTests
         {
             new(CreateResult("safe", RiskLevel.SafeAuto, ExecutionStatus.Skipped))
         };
+        vm.HasSafeAutoItems = true;
 
         await vm.ApplySafeAutoCommand.ExecuteAsync(null);
 
@@ -119,15 +188,32 @@ public sealed class GenericCleanupViewModelTests
         vm.IsBusy.Should().BeFalse();
     }
 
-    private static GenericCleanupViewModel CreateViewModel(FakeDialogService dialog, FakeCleanupPipeline pipeline)
+    private static GenericCleanupViewModel CreateViewModel(
+        FakeDialogService dialog,
+        FakeCleanupPipeline pipeline,
+        ICleanupProvider? selectedApp = null)
     {
         var ruleCatalog = new RuleCatalog(Array.Empty<IAppDetector>(), new BucketBuilder());
         var vm = new GenericCleanupViewModel(ruleCatalog, pipeline, dialog)
         {
-            SelectedApp = new StubCleanupProvider("TestApp")
+            SelectedApp = selectedApp ?? new StubCleanupProvider("TestApp")
         };
 
         return vm;
+    }
+
+    private static CleanupBucket CreateBucket(string bucketId, RiskLevel risk)
+    {
+        return new CleanupBucket(
+            BucketId: bucketId,
+            Category: "TestCategory",
+            RootPath: @"C:\Sandbox\Path",
+            AppName: "TestApp",
+            RiskLevel: risk,
+            SuggestedAction: CleanupAction.DeleteToRecycleBin,
+            Description: "Test Bucket",
+            EstimatedSizeBytes: 1024 * 1024,
+            Entries: Array.Empty<CleanupEntry>());
     }
 
     private static BucketResult CreateResult(string bucketId, RiskLevel risk, ExecutionStatus status, long estimatedBytes = 1024 * 1024)
@@ -155,16 +241,19 @@ public sealed class GenericCleanupViewModelTests
 
     private sealed class StubCleanupProvider : ICleanupProvider
     {
-        public StubCleanupProvider(string appName)
+        private readonly IReadOnlyList<CleanupBucket> buckets;
+
+        public StubCleanupProvider(string appName, IReadOnlyList<CleanupBucket>? buckets = null)
         {
             AppName = appName;
+            this.buckets = buckets ?? Array.Empty<CleanupBucket>();
         }
 
         public string AppName { get; }
 
         public IReadOnlyList<CleanupBucket> GetBuckets()
         {
-            return Array.Empty<CleanupBucket>();
+            return buckets;
         }
     }
 

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -20,16 +21,26 @@ public partial class GenericCleanupViewModel : ObservableObject
     public ObservableCollection<ICleanupProvider> AvailableApps { get; } = new();
 
     [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ScanCommand))]
     private ICleanupProvider? selectedApp;
 
     [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ScanCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ApplySafeAutoCommand))]
     private bool isBusy;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ApplySafeAutoCommand))]
+    private bool hasSafeAutoItems;
 
     [ObservableProperty]
     private string statusText = "准备就绪";
 
     [ObservableProperty]
     private ObservableCollection<BucketResultItemViewModel> bucketItems = new();
+
+    [ObservableProperty]
+    private ExecutionSummaryViewModel? executionSummary;
 
     public GenericCleanupViewModel(RuleCatalog catalog, ICleanupPipeline pipeline, IDialogService dialogService)
     {
@@ -44,20 +55,18 @@ public partial class GenericCleanupViewModel : ObservableObject
         SelectedApp = AvailableApps.FirstOrDefault();
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanScan))]
     private async Task ScanAsync()
     {
-        if (SelectedApp is null)
-        {
+        var selectedProvider = SelectedApp;
+        if (selectedProvider is null)
             return;
-        }
 
         IsBusy = true;
-        StatusText = $"正在扫描 {SelectedApp.AppName} 数据...";
+        StatusText = $"正在扫描 {selectedProvider.AppName} 数据...";
 
         try
         {
-            var selectedProvider = SelectedApp;
             var results = await Task.Run(() =>
             {
                 var buckets = selectedProvider.GetBuckets();
@@ -81,12 +90,18 @@ public partial class GenericCleanupViewModel : ObservableObject
                 BucketItems.Add(item);
             }
 
+            HasSafeAutoItems = BucketItems.Any(x => x.RawRisk == RiskLevel.SafeAuto);
+            ExecutionSummary = null;
+
             StatusText = results.Count == 0
                 ? $"未发现 {selectedProvider.AppName} 可清理数据"
                 : $"{selectedProvider.AppName} 扫描完成";
         }
         catch (Exception ex)
         {
+            Debug.WriteLine(ex);
+            HasSafeAutoItems = false;
+            ExecutionSummary = null;
             StatusText = $"扫描失败: {ex.Message}";
         }
         finally
@@ -95,10 +110,11 @@ public partial class GenericCleanupViewModel : ObservableObject
         }
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanApplySafeAuto))]
     private async Task ApplySafeAutoAsync()
     {
-        if (SelectedApp is null)
+        var selectedProvider = SelectedApp;
+        if (selectedProvider is null)
         {
             return;
         }
@@ -117,7 +133,7 @@ public partial class GenericCleanupViewModel : ObservableObject
         double estimatedMb = estimatedBytes / 1024.0 / 1024.0;
         bool confirmed = await dialogService.ConfirmAsync(
             "确认物理清理",
-            $"即将物理清理 {SelectedApp.AppName} 的 {targets.Count} 个 SafeAuto 项目，预计释放 {estimatedMb:F2} MB 空间。此操作不可逆，是否继续？");
+            $"即将物理清理 {selectedProvider.AppName} 的 {targets.Count} 个 SafeAuto 项目，预计释放 {estimatedMb:F2} MB 空间。此操作不可逆，是否继续？");
 
         if (!confirmed)
         {
@@ -147,9 +163,16 @@ public partial class GenericCleanupViewModel : ObservableObject
 
             int successCount = executeResults.Count(x => x.FinalStatus == ExecutionStatus.Success);
             StatusText = $"物理清理完成，成功 {successCount}/{executeResults.Count} 项";
+
+            ExecutionSummary ??= new ExecutionSummaryViewModel();
+            ExecutionSummary.UpdateFrom(executeResults);
+            HasSafeAutoItems = BucketItems.Any(x =>
+                x.RawRisk == RiskLevel.SafeAuto &&
+                x.OriginalResult.FinalStatus != ExecutionStatus.Success);
         }
         catch (Exception ex)
         {
+            Debug.WriteLine(ex);
             await dialogService.ShowErrorAsync("物理清理失败", ex.Message);
             StatusText = $"物理清理失败: {ex.Message}";
         }
@@ -158,6 +181,10 @@ public partial class GenericCleanupViewModel : ObservableObject
             IsBusy = false;
         }
     }
+
+    private bool CanScan() => SelectedApp is not null && !IsBusy;
+
+    private bool CanApplySafeAuto() => HasSafeAutoItems && !IsBusy;
 
     private static int RiskSortKey(RiskLevel risk)
     {
