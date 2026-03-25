@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using CDriveMaster.Core.Executors;
 using CDriveMaster.Core.Models;
 using CDriveMaster.Core.Services;
 using CDriveMaster.UI.Services;
@@ -12,11 +13,21 @@ namespace CDriveMaster.UI.ViewModels;
 public partial class SystemMaintenanceAnalysisViewModel : ObservableObject
 {
     private readonly DismAnalyzer analyzer;
+    private readonly DismCleanupExecutor cleanupExecutor;
     private readonly IDialogService dialogService;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(AnalyzeCommand))]
+    [NotifyCanExecuteChangedFor(nameof(CleanupCommand))]
     private bool isBusy;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(CleanupCommand))]
+    private bool hasAnalysisResult;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(CleanupCommand))]
+    private bool isConfirmed;
 
     [ObservableProperty]
     private string statusText = "准备就绪，点击分析获取系统组件(WinSxS)状态";
@@ -36,9 +47,16 @@ public partial class SystemMaintenanceAnalysisViewModel : ObservableObject
     [ObservableProperty]
     private string lastAnalysisTime = "--";
 
-    public SystemMaintenanceAnalysisViewModel(DismAnalyzer analyzer, IDialogService dialogService)
+    [ObservableProperty]
+    private SystemCleanupViewModel? cleanupResult;
+
+    public SystemMaintenanceAnalysisViewModel(
+        DismAnalyzer analyzer,
+        DismCleanupExecutor cleanupExecutor,
+        IDialogService dialogService)
     {
         this.analyzer = analyzer;
+        this.cleanupExecutor = cleanupExecutor;
         this.dialogService = dialogService;
     }
 
@@ -58,10 +76,14 @@ public partial class SystemMaintenanceAnalysisViewModel : ObservableObject
                 CleanupRecommended = result.Report.CleanupRecommended ? "是" : "否";
                 LastAnalysisTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
                 StatusText = "系统组件分析完成";
+                CleanupResult = null;
+                HasAnalysisResult = result.Report.CleanupRecommended;
+                IsConfirmed = false;
             }
             else
             {
                 StatusText = "分析失败";
+                HasAnalysisResult = false;
                 await dialogService.ShowErrorAsync("分析失败", string.IsNullOrWhiteSpace(result.Reason) ? result.StdErr : result.Reason);
             }
         }
@@ -71,7 +93,35 @@ public partial class SystemMaintenanceAnalysisViewModel : ObservableObject
         }
     }
 
+    [RelayCommand(CanExecute = nameof(CanCleanup))]
+    private async Task CleanupAsync()
+    {
+        IsBusy = true;
+        StatusText = "正在执行系统组件真实清理，请勿强制关闭程序 (约 10-30 分钟)...";
+
+        try
+        {
+            var result = await cleanupExecutor.ExecuteAsync(Guid.NewGuid().ToString("N"));
+            CleanupResult = new SystemCleanupViewModel(
+                Title: "WinSxS 组件清理",
+                Status: result.Status,
+                Duration: result.Duration,
+                ExitCode: result.ExitCode,
+                Message: result.Status == ExecutionStatus.Success ? "执行完成" : "执行失败或被拦截");
+
+            HasAnalysisResult = false;
+            IsConfirmed = false;
+            StatusText = "清理完毕，建议重新分析";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
     private bool CanAnalyze() => !IsBusy;
+
+    private bool CanCleanup() => !IsBusy && HasAnalysisResult && IsConfirmed;
 
     private static string ToGbText(long bytes)
     {
