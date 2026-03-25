@@ -9,8 +9,8 @@
         <DataTemplate DataType="{x:Type viewmodels:SystemMaintenanceViewModel}">
             <views:SystemMaintenanceView />
         </DataTemplate>
-        <DataTemplate DataType="{x:Type viewmodels:WeChatCleanupViewModel}">
-            <views:WeChatCleanupView />
+        <DataTemplate DataType="{x:Type viewmodels:GenericCleanupViewModel}">
+            <views:GenericCleanupView />
         </DataTemplate>
     </Window.Resources>
 
@@ -25,8 +25,8 @@
                     Command="{Binding MapsToSystemMaintenanceCommand}"
                     Width="100"
                     Margin="0,0,8,0" />
-            <Button Content="微信专清"
-                    Command="{Binding MapsToWeChatCleanupCommand}"
+                <Button Content="应用清理"
+                    Command="{Binding MapsToAppCleanupCommand}"
                     Width="100" />
         </StackPanel>
 

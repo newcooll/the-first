@@ -4,17 +4,21 @@ using System.Linq;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using CDriveMaster.Core.Interfaces;
 using CDriveMaster.Core.Models;
-using CDriveMaster.Core.Providers;
 using CDriveMaster.Core.Services;
 using CDriveMaster.UI.ViewModels.Items;
 
 namespace CDriveMaster.UI.ViewModels;
 
-public partial class WeChatCleanupViewModel : ObservableObject
+public partial class GenericCleanupViewModel : ObservableObject
 {
-    private readonly WeChatCleanupProvider provider;
     private readonly CleanupPipeline pipeline;
+
+    public ObservableCollection<ICleanupProvider> AvailableApps { get; } = new();
+
+    [ObservableProperty]
+    private ICleanupProvider? selectedApp;
 
     [ObservableProperty]
     private bool isBusy;
@@ -25,23 +29,35 @@ public partial class WeChatCleanupViewModel : ObservableObject
     [ObservableProperty]
     private ObservableCollection<BucketResultItemViewModel> bucketItems = new();
 
-    public WeChatCleanupViewModel(WeChatCleanupProvider provider, CleanupPipeline pipeline)
+    public GenericCleanupViewModel(RuleCatalog catalog, CleanupPipeline pipeline)
     {
-        this.provider = provider;
         this.pipeline = pipeline;
+
+        foreach (var provider in catalog.GetAllProviders())
+        {
+            AvailableApps.Add(provider);
+        }
+
+        SelectedApp = AvailableApps.FirstOrDefault();
     }
 
     [RelayCommand]
     private async Task ScanAsync()
     {
+        if (SelectedApp is null)
+        {
+            return;
+        }
+
         IsBusy = true;
-        StatusText = "正在扫描微信缓存...";
+        StatusText = $"正在扫描 {SelectedApp.AppName} 数据...";
 
         try
         {
+            var selectedProvider = SelectedApp;
             var results = await Task.Run(() =>
             {
-                var buckets = provider.GetBuckets();
+                var buckets = selectedProvider.GetBuckets();
                 if (buckets.Count == 0)
                 {
                     return Array.Empty<BucketResult>();
@@ -62,7 +78,9 @@ public partial class WeChatCleanupViewModel : ObservableObject
                 BucketItems.Add(item);
             }
 
-            StatusText = results.Count == 0 ? "未发现微信数据" : "扫描完成";
+            StatusText = results.Count == 0
+                ? $"未发现 {selectedProvider.AppName} 可清理数据"
+                : $"{selectedProvider.AppName} 扫描完成";
         }
         catch (Exception ex)
         {

@@ -5,7 +5,6 @@ using CDriveMaster.Core.Detectors;
 using CDriveMaster.Core.Executors;
 using CDriveMaster.Core.Guards;
 using CDriveMaster.Core.Interfaces;
-using CDriveMaster.Core.Providers;
 using CDriveMaster.Core.Services;
 using CDriveMaster.UI.ViewModels;
 using Microsoft.Extensions.DependencyInjection;
@@ -22,8 +21,9 @@ public partial class App : Application
 	private void ConfigureServices(IServiceCollection services)
 	{
 		services.AddTransient<IAppDetector, WeChatDetector>();
+		services.AddTransient<IAppDetector, QQDetector>();
 		services.AddTransient<BucketBuilder>();
-		services.AddTransient<WeChatCleanupProvider>();
+		services.AddTransient<RuleCatalog>();
 		services.AddSingleton<PreflightGuard>();
 		services.AddTransient(sp => new DryRunExecutor(
 			sp.GetRequiredService<PreflightGuard>(),
@@ -38,7 +38,7 @@ public partial class App : Application
 		services.AddTransient<DismCleanupExecutor>();
 
 		services.AddTransient<SystemMaintenanceViewModel>();
-		services.AddTransient<WeChatCleanupViewModel>();
+		services.AddTransient<GenericCleanupViewModel>();
 		services.AddTransient<MainViewModel>();
 
 		services.AddSingleton<MainWindow>();

@@ -35,18 +35,30 @@ public class GenericRuleProvider : ICleanupProvider
 
         foreach (var target in _rule.Targets)
         {
-            if (UseWeChatWxidExpansion(target))
+            string normalizedTarget = NormalizeRelativePath(target.BaseFolder);
+
+            if (HasWildcardPrefix(normalizedTarget))
             {
-                foreach (var wxidPath in SafeEnumerateDirectories(basePath, "wxid_*"))
+                string relativePath = TrimWildcardPrefix(normalizedTarget);
+
+                foreach (var userPath in SafeEnumerateDirectories(basePath))
                 {
-                    var targetPath = Path.Combine(wxidPath, NormalizeRelativePath(target.BaseFolder));
+                    var targetPath = string.IsNullOrWhiteSpace(relativePath)
+                        ? userPath
+                        : Path.Combine(userPath, relativePath);
+
+                    if (!Directory.Exists(targetPath))
+                    {
+                        continue;
+                    }
+
                     TryBuildAndAddBucket(buckets, targetPath, target);
                 }
 
                 continue;
             }
 
-            var directPath = Path.Combine(basePath, NormalizeRelativePath(target.BaseFolder));
+            var directPath = Path.Combine(basePath, normalizedTarget);
             TryBuildAndAddBucket(buckets, directPath, target);
         }
 
@@ -79,15 +91,9 @@ public class GenericRuleProvider : ICleanupProvider
         return $"{_rule.Description} ({target.Kind})";
     }
 
-    private bool UseWeChatWxidExpansion(TargetRule target)
+    private static bool HasWildcardPrefix(string path)
     {
-        if (!string.Equals(_rule.AppName, "WeChat", StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
-        var normalized = NormalizeRelativePath(target.BaseFolder);
-        return normalized.StartsWith("FileStorage", StringComparison.OrdinalIgnoreCase);
+        return path.StartsWith($"*{Path.DirectorySeparatorChar}", StringComparison.Ordinal);
     }
 
     private static string NormalizeRelativePath(string relativePath)
@@ -102,16 +108,26 @@ public class GenericRuleProvider : ICleanupProvider
             .Replace('\\', Path.DirectorySeparatorChar);
     }
 
-    private static IEnumerable<string> SafeEnumerateDirectories(string root, string pattern)
+    private static string TrimWildcardPrefix(string path)
     {
-        if (string.IsNullOrWhiteSpace(root) || string.IsNullOrWhiteSpace(pattern))
+        if (!HasWildcardPrefix(path))
+        {
+            return path;
+        }
+
+        return path.Substring(2);
+    }
+
+    private static IEnumerable<string> SafeEnumerateDirectories(string root)
+    {
+        if (string.IsNullOrWhiteSpace(root))
         {
             return Array.Empty<string>();
         }
 
         try
         {
-            return Directory.EnumerateDirectories(root, pattern, SearchOption.TopDirectoryOnly);
+            return Directory.EnumerateDirectories(root, "*", SearchOption.TopDirectoryOnly);
         }
         catch (UnauthorizedAccessException)
         {

@@ -4,12 +4,12 @@
   "DefaultAction": "DeleteToRecycleBin",
   "Targets": [
     {
-      "BaseFolder": "FileStorage/Cache",
+      "BaseFolder": "*/FileStorage/Cache",
       "Kind": "Cache",
       "RiskLevel": "SafeAuto"
     },
     {
-      "BaseFolder": "FileStorage/Video",
+      "BaseFolder": "*/FileStorage/Video",
       "Kind": "Video",
       "RiskLevel": "SafeWithPreview"
     },

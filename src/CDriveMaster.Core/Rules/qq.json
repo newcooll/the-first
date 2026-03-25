@@ -1,0 +1,27 @@
+{
+  "AppName": "QQ",
+  "Description": "QQ 缓存与冗余文件清理",
+  "DefaultAction": "DeleteToRecycleBin",
+  "Targets": [
+    {
+      "BaseFolder": "*/Image",
+      "Kind": "Image",
+      "RiskLevel": "SafeWithPreview"
+    },
+    {
+      "BaseFolder": "*/Video",
+      "Kind": "Video",
+      "RiskLevel": "SafeWithPreview"
+    },
+    {
+      "BaseFolder": "*/PTT",
+      "Kind": "Audio",
+      "RiskLevel": "SafeWithPreview"
+    },
+    {
+      "BaseFolder": "*/FileRecv",
+      "Kind": "Download",
+      "RiskLevel": "Blocked"
+    }
+  ]
+}
