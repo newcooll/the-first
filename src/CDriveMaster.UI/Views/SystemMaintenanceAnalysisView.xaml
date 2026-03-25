@@ -31,6 +31,8 @@
                 </Button.Style>
             </Button>
 
+            <Button Command="{Binding OpenLogsFolderCommand}" Width="120" Height="32" Margin="0,0,10,0" Content="审计日志" />
+
             <TextBlock Text="{Binding StatusText}" VerticalAlignment="Center" Foreground="#FF245A94" />
         </StackPanel>
 
@@ -129,13 +131,21 @@
                 </Style>
             </Border.Style>
 
-            <StackPanel Orientation="Horizontal">
-                <TextBlock Text="清理状态:" Margin="0,0,4,0" />
-                <TextBlock Text="{Binding CleanupResult.Status}" Margin="0,0,12,0" FontWeight="SemiBold" />
-                <TextBlock Text="耗时:" Margin="0,0,4,0" />
-                <TextBlock Text="{Binding CleanupResult.Duration}" Margin="0,0,12,0" FontWeight="SemiBold" />
-                <TextBlock Text="退出码:" Margin="0,0,4,0" />
-                <TextBlock Text="{Binding CleanupResult.ExitCode}" FontWeight="SemiBold" />
+            <StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                    <TextBlock Text="清理状态:" Margin="0,0,4,0" />
+                    <TextBlock Text="{Binding CleanupResult.Status}" Margin="0,0,12,0" FontWeight="SemiBold" />
+                    <TextBlock Text="耗时:" Margin="0,0,4,0" />
+                    <TextBlock Text="{Binding CleanupResult.Duration}" Margin="0,0,12,0" FontWeight="SemiBold" />
+                    <TextBlock Text="退出码:" Margin="0,0,4,0" />
+                    <TextBlock Text="{Binding CleanupResult.ExitCode}" FontWeight="SemiBold" />
+                </StackPanel>
+
+                <Button Command="{Binding ReAnalyzeCommand}"
+                        Width="140"
+                        Height="30"
+                        HorizontalAlignment="Left"
+                        Content="重新分析系统组件" />
             </StackPanel>
         </Border>
     </Grid>

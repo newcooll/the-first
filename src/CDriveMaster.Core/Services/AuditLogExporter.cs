@@ -24,16 +24,9 @@ public sealed class AuditLogExporter
 
         try
         {
-            string logsPath = Path.Combine(AppContext.BaseDirectory, "Logs");
-            Directory.CreateDirectory(logsPath);
-
             string safeName = string.IsNullOrWhiteSpace(appName) ? "Unknown" : appName;
             string fileName = $"Audit_{safeName}_{DateTime.Now:yyyyMMdd_HHmmss}.json";
-            string fullPath = Path.Combine(logsPath, fileName);
-
-            var options = new JsonSerializerOptions { WriteIndented = true };
-            string json = JsonSerializer.Serialize(executed, options);
-            await File.WriteAllTextAsync(fullPath, json);
+            await WriteAuditFileAsync(fileName, executed);
         }
         catch (IOException ex)
         {
@@ -43,5 +36,38 @@ public sealed class AuditLogExporter
         {
             Debug.WriteLine(ex);
         }
+    }
+
+    public async Task ExportSystemMaintenanceAsync(SystemMaintenanceResult result)
+    {
+        if (result.Status == ExecutionStatus.Skipped)
+        {
+            return;
+        }
+
+        try
+        {
+            string fileName = $"Audit_SystemMaintenance_{DateTime.Now:yyyyMMdd_HHmmss}.json";
+            await WriteAuditFileAsync(fileName, result);
+        }
+        catch (IOException ex)
+        {
+            Debug.WriteLine(ex);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            Debug.WriteLine(ex);
+        }
+    }
+
+    private static async Task WriteAuditFileAsync(string fileName, object payload)
+    {
+        string logsPath = Path.Combine(AppContext.BaseDirectory, "Logs");
+        Directory.CreateDirectory(logsPath);
+
+        string fullPath = Path.Combine(logsPath, fileName);
+        var options = new JsonSerializerOptions { WriteIndented = true };
+        string json = JsonSerializer.Serialize(payload, options);
+        await File.WriteAllTextAsync(fullPath, json);
     }
 }

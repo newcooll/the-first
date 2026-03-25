@@ -1,5 +1,7 @@
 using System;
 using System.Globalization;
+using System.IO;
+using System.Diagnostics;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -15,10 +17,12 @@ public partial class SystemMaintenanceAnalysisViewModel : ObservableObject
     private readonly DismAnalyzer analyzer;
     private readonly DismCleanupExecutor cleanupExecutor;
     private readonly IDialogService dialogService;
+    private readonly AuditLogExporter auditLogExporter;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(AnalyzeCommand))]
     [NotifyCanExecuteChangedFor(nameof(CleanupCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ReAnalyzeCommand))]
     private bool isBusy;
 
     [ObservableProperty]
@@ -53,11 +57,13 @@ public partial class SystemMaintenanceAnalysisViewModel : ObservableObject
     public SystemMaintenanceAnalysisViewModel(
         DismAnalyzer analyzer,
         DismCleanupExecutor cleanupExecutor,
-        IDialogService dialogService)
+        IDialogService dialogService,
+        AuditLogExporter auditLogExporter)
     {
         this.analyzer = analyzer;
         this.cleanupExecutor = cleanupExecutor;
         this.dialogService = dialogService;
+        this.auditLogExporter = auditLogExporter;
     }
 
     [RelayCommand(CanExecute = nameof(CanAnalyze))]
@@ -102,6 +108,8 @@ public partial class SystemMaintenanceAnalysisViewModel : ObservableObject
         try
         {
             var result = await cleanupExecutor.ExecuteAsync(Guid.NewGuid().ToString("N"));
+            await auditLogExporter.ExportSystemMaintenanceAsync(result);
+
             CleanupResult = new SystemCleanupViewModel(
                 Title: "WinSxS 组件清理",
                 Status: result.Status,
@@ -119,9 +127,49 @@ public partial class SystemMaintenanceAnalysisViewModel : ObservableObject
         }
     }
 
+    [RelayCommand(CanExecute = nameof(CanAnalyze))]
+    private async Task ReAnalyzeAsync()
+    {
+        ResetAnalysisState();
+        await AnalyzeAsync();
+    }
+
+    [RelayCommand]
+    private async Task OpenLogsFolderAsync()
+    {
+        try
+        {
+            string logsPath = Path.Combine(AppContext.BaseDirectory, "Logs");
+            Directory.CreateDirectory(logsPath);
+
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = logsPath,
+                UseShellExecute = true
+            };
+
+            Process.Start(startInfo);
+        }
+        catch (Exception ex)
+        {
+            await dialogService.ShowErrorAsync("打开日志目录失败", ex.Message);
+        }
+    }
+
     private bool CanAnalyze() => !IsBusy;
 
     private bool CanCleanup() => !IsBusy && HasAnalysisResult && IsConfirmed;
+
+    private void ResetAnalysisState()
+    {
+        ActualSizeText = "--";
+        EstimatedReclaimableText = "--";
+        CleanupRecommended = "--";
+        LastAnalysisTime = "--";
+        CleanupResult = null;
+        HasAnalysisResult = false;
+        IsConfirmed = false;
+    }
 
     private static string ToGbText(long bytes)
     {

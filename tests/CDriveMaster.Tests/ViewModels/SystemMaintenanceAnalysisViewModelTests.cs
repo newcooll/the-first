@@ -72,6 +72,38 @@ public sealed class SystemMaintenanceAnalysisViewModelTests
         vm.CleanupResult.Duration.Should().Be(expectedDuration);
     }
 
+    [Fact]
+    public async Task ReAnalyzeAsync_WhenAnalyzeFails_ShouldResetStaleDisplayAndLockCleanup()
+    {
+        var failedAnalyzeRunner = new StubDismCommandRunner(_ => Task.FromResult(new SystemMaintenanceResult(
+            OperationId: "analyze-op",
+            Status: ExecutionStatus.Failed,
+            EstimatedReclaimableBytes: 0,
+            ExitCode: 1,
+            Duration: TimeSpan.FromSeconds(1),
+            StdOut: string.Empty,
+            StdErr: "failed")));
+
+        var vm = CreateViewModel(failedAnalyzeRunner, CreateCleanupRunner());
+        vm.ActualSizeText = "99 GB";
+        vm.EstimatedReclaimableText = "12 GB";
+        vm.CleanupRecommended = "是";
+        vm.LastAnalysisTime = "2026-03-25 10:00:00";
+        vm.HasAnalysisResult = true;
+        vm.IsConfirmed = true;
+        vm.CleanupResult = new SystemCleanupViewModel("WinSxS", ExecutionStatus.Success, TimeSpan.FromMinutes(1), 0, "ok");
+
+        await vm.ReAnalyzeCommand.ExecuteAsync(null);
+
+        vm.ActualSizeText.Should().Be("--");
+        vm.EstimatedReclaimableText.Should().Be("--");
+        vm.CleanupRecommended.Should().Be("--");
+        vm.LastAnalysisTime.Should().Be("--");
+        vm.CleanupResult.Should().BeNull();
+        vm.HasAnalysisResult.Should().BeFalse();
+        vm.IsConfirmed.Should().BeFalse();
+    }
+
     private static SystemMaintenanceAnalysisViewModel CreateViewModel(
         StubDismCommandRunner analyzeRunner,
         StubDismCommandRunner cleanupRunner)
@@ -79,7 +111,8 @@ public sealed class SystemMaintenanceAnalysisViewModelTests
         var analyzer = new DismAnalyzer(analyzeRunner);
         var executor = new DismCleanupExecutor(cleanupRunner);
         var dialog = new FakeDialogService();
-        return new SystemMaintenanceAnalysisViewModel(analyzer, executor, dialog);
+        var exporter = new AuditLogExporter();
+        return new SystemMaintenanceAnalysisViewModel(analyzer, executor, dialog, exporter);
     }
 
     private static StubDismCommandRunner CreateAnalyzeRunner(bool successRecommended)
