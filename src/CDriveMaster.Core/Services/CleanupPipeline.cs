@@ -53,4 +53,22 @@ public class CleanupPipeline : ICleanupPipeline
 
         return results.AsReadOnly();
     }
+
+    public BucketResult ExecuteEntries(CleanupBucket parentBucket, IEnumerable<CleanupEntry> entriesToApply, bool apply)
+    {
+        var entries = entriesToApply.ToList();
+        var tempBucket = new CleanupBucket(
+            BucketId: parentBucket.BucketId,
+            Category: parentBucket.Category,
+            RootPath: parentBucket.RootPath,
+            AppName: parentBucket.AppName,
+            RiskLevel: parentBucket.RiskLevel,
+            SuggestedAction: parentBucket.SuggestedAction,
+            Description: parentBucket.Description,
+            EstimatedSizeBytes: entries.Sum(x => x.SizeBytes),
+            Entries: entries.AsReadOnly());
+
+        var result = Execute(new[] { tempBucket }, apply);
+        return result[0];
+    }
 }

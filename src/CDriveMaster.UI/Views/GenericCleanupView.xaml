@@ -53,6 +53,14 @@
                 </Button.Style>
             </Button>
 
+            <Button Content="预览后清理 (需确认项)"
+                    Command="{Binding ReviewAndApplyCommand}"
+                    Width="180"
+                    Height="32"
+                    Margin="0,0,10,0"
+                    Background="#FFEAF4FF"
+                    Foreground="#FF1E4E79" />
+
             <TextBlock Text="{Binding StatusText}" VerticalAlignment="Center" />
         </StackPanel>
 

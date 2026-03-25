@@ -2,10 +2,12 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Threading.Tasks;
 using CDriveMaster.Core.Interfaces;
 using CDriveMaster.Core.Models;
 using CDriveMaster.Core.Services;
 using CDriveMaster.Tests.Fakes;
+using CDriveMaster.UI.Services;
 using CDriveMaster.UI.ViewModels;
 using CDriveMaster.UI.ViewModels.Items;
 using FluentAssertions;
@@ -194,7 +196,7 @@ public sealed class GenericCleanupViewModelTests
         ICleanupProvider? selectedApp = null)
     {
         var ruleCatalog = new RuleCatalog(Array.Empty<IAppDetector>(), new BucketBuilder());
-        var vm = new GenericCleanupViewModel(ruleCatalog, pipeline, dialog)
+        var vm = new GenericCleanupViewModel(ruleCatalog, pipeline, dialog, new FakePreviewDialogService())
         {
             SelectedApp = selectedApp ?? new StubCleanupProvider("TestApp")
         };
@@ -288,6 +290,31 @@ public sealed class GenericCleanupViewModelTests
             return buckets
                 .Select(x => CreateResult(x.BucketId, x.RiskLevel, ExecutionStatus.Skipped, x.EstimatedSizeBytes))
                 .ToList();
+        }
+
+        public BucketResult ExecuteEntries(CleanupBucket parentBucket, IEnumerable<CleanupEntry> entriesToApply, bool apply)
+        {
+            var selected = entriesToApply.ToList();
+            var temp = new CleanupBucket(
+                BucketId: parentBucket.BucketId,
+                Category: parentBucket.Category,
+                RootPath: parentBucket.RootPath,
+                AppName: parentBucket.AppName,
+                RiskLevel: parentBucket.RiskLevel,
+                SuggestedAction: parentBucket.SuggestedAction,
+                Description: parentBucket.Description,
+                EstimatedSizeBytes: selected.Sum(x => x.SizeBytes),
+                Entries: selected);
+
+            return CreateResult(temp.BucketId, temp.RiskLevel, ExecutionStatus.Success, temp.EstimatedSizeBytes);
+        }
+    }
+
+    private sealed class FakePreviewDialogService : IPreviewDialogService
+    {
+        public Task<IEnumerable<CleanupEntry>> ShowPreviewAsync(string title, IEnumerable<CleanupEntry> entries)
+        {
+            return Task.FromResult(entries.Take(0));
         }
     }
 }

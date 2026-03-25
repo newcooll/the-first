@@ -17,6 +17,7 @@ public partial class GenericCleanupViewModel : ObservableObject
 {
     private readonly ICleanupPipeline pipeline;
     private readonly IDialogService dialogService;
+    private readonly IPreviewDialogService previewService;
 
     public ObservableCollection<ICleanupProvider> AvailableApps { get; } = new();
 
@@ -27,11 +28,16 @@ public partial class GenericCleanupViewModel : ObservableObject
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(ScanCommand))]
     [NotifyCanExecuteChangedFor(nameof(ApplySafeAutoCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ReviewAndApplyCommand))]
     private bool isBusy;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(ApplySafeAutoCommand))]
     private bool hasSafeAutoItems;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ReviewAndApplyCommand))]
+    private bool hasSafeWithPreviewItems;
 
     [ObservableProperty]
     private string statusText = "准备就绪";
@@ -42,10 +48,15 @@ public partial class GenericCleanupViewModel : ObservableObject
     [ObservableProperty]
     private ExecutionSummaryViewModel? executionSummary;
 
-    public GenericCleanupViewModel(RuleCatalog catalog, ICleanupPipeline pipeline, IDialogService dialogService)
+    public GenericCleanupViewModel(
+        RuleCatalog catalog,
+        ICleanupPipeline pipeline,
+        IDialogService dialogService,
+        IPreviewDialogService previewService)
     {
         this.pipeline = pipeline;
         this.dialogService = dialogService;
+        this.previewService = previewService;
 
         foreach (var provider in catalog.GetAllProviders())
         {
@@ -91,6 +102,7 @@ public partial class GenericCleanupViewModel : ObservableObject
             }
 
             HasSafeAutoItems = BucketItems.Any(x => x.RawRisk == RiskLevel.SafeAuto);
+            HasSafeWithPreviewItems = BucketItems.Any(x => x.RawRisk == RiskLevel.SafeWithPreview);
             ExecutionSummary = null;
 
             StatusText = results.Count == 0
@@ -101,6 +113,7 @@ public partial class GenericCleanupViewModel : ObservableObject
         {
             Debug.WriteLine(ex);
             HasSafeAutoItems = false;
+            HasSafeWithPreviewItems = false;
             ExecutionSummary = null;
             StatusText = $"扫描失败: {ex.Message}";
         }
@@ -169,6 +182,9 @@ public partial class GenericCleanupViewModel : ObservableObject
             HasSafeAutoItems = BucketItems.Any(x =>
                 x.RawRisk == RiskLevel.SafeAuto &&
                 x.OriginalResult.FinalStatus != ExecutionStatus.Success);
+            HasSafeWithPreviewItems = BucketItems.Any(x =>
+                x.RawRisk == RiskLevel.SafeWithPreview &&
+                x.OriginalResult.FinalStatus != ExecutionStatus.Success);
         }
         catch (Exception ex)
         {
@@ -182,9 +198,91 @@ public partial class GenericCleanupViewModel : ObservableObject
         }
     }
 
+    [RelayCommand(CanExecute = nameof(CanReviewAndApply))]
+    private async Task ReviewAndApplyAsync()
+    {
+        var previewTargets = BucketItems
+            .Where(x => x.RawRisk == RiskLevel.SafeWithPreview && x.OriginalResult.FinalStatus != ExecutionStatus.Success)
+            .Select(x => x.OriginalResult.Bucket)
+            .ToList();
+
+        if (previewTargets.Count == 0)
+        {
+            return;
+        }
+
+        var allEntries = previewTargets
+            .SelectMany(x => x.Entries)
+            .ToList();
+
+        var selectedEntries = (await previewService.ShowPreviewAsync("预览并确认清理项", allEntries)).ToList();
+        if (selectedEntries.Count == 0)
+        {
+            return;
+        }
+
+        IsBusy = true;
+        StatusText = "正在按预览清单执行清理...";
+
+        try
+        {
+            var byPath = previewTargets
+                .SelectMany(b => b.Entries.Select(e => new { Bucket = b, Entry = e }))
+                .GroupBy(x => x.Entry.Path, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First().Bucket, StringComparer.OrdinalIgnoreCase);
+
+            var grouped = selectedEntries
+                .Where(x => byPath.ContainsKey(x.Path))
+                .GroupBy(x => byPath[x.Path].BucketId)
+                .ToList();
+
+            var executeResults = new System.Collections.Generic.List<BucketResult>();
+            foreach (var group in grouped)
+            {
+                var parentBucket = previewTargets.First(x => x.BucketId == group.Key);
+                var result = await Task.Run(() => pipeline.ExecuteEntries(parentBucket, group, apply: true));
+                executeResults.Add(result);
+            }
+
+            var byBucketId = executeResults.ToDictionary(x => x.Bucket.BucketId, x => x);
+            for (int i = 0; i < BucketItems.Count; i++)
+            {
+                var existing = BucketItems[i];
+                if (byBucketId.TryGetValue(existing.OriginalResult.Bucket.BucketId, out var updated))
+                {
+                    BucketItems[i] = new BucketResultItemViewModel(updated);
+                }
+            }
+
+            ExecutionSummary ??= new ExecutionSummaryViewModel();
+            ExecutionSummary.UpdateFrom(executeResults);
+
+            HasSafeAutoItems = BucketItems.Any(x =>
+                x.RawRisk == RiskLevel.SafeAuto &&
+                x.OriginalResult.FinalStatus != ExecutionStatus.Success);
+            HasSafeWithPreviewItems = BucketItems.Any(x =>
+                x.RawRisk == RiskLevel.SafeWithPreview &&
+                x.OriginalResult.FinalStatus != ExecutionStatus.Success);
+
+            StatusText = $"预览清理完成，共处理 {executeResults.Count} 个分组";
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine(ex);
+            await dialogService.ShowErrorAsync("预览清理失败", ex.Message);
+            StatusText = $"预览清理失败: {ex.Message}";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
     private bool CanScan() => SelectedApp is not null && !IsBusy;
 
     private bool CanApplySafeAuto() => HasSafeAutoItems && !IsBusy;
+
+    private bool CanReviewAndApply() => HasSafeWithPreviewItems && !IsBusy;
 
     private static int RiskSortKey(RiskLevel risk)
     {
