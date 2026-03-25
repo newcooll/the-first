@@ -1,0 +1,22 @@
+{
+  "AppName": "WeChat",
+  "Description": "微信PC版缓存与冗余文件清理",
+  "DefaultAction": "DeleteToRecycleBin",
+  "Targets": [
+    {
+      "BaseFolder": "FileStorage/Cache",
+      "Kind": "Cache",
+      "RiskLevel": "SafeAuto"
+    },
+    {
+      "BaseFolder": "FileStorage/Video",
+      "Kind": "Video",
+      "RiskLevel": "SafeWithPreview"
+    },
+    {
+      "BaseFolder": "Applet",
+      "Kind": "AppletCache",
+      "RiskLevel": "SafeWithPreview"
+    }
+  ]
+}

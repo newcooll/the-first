@@ -1,8 +1,12 @@
 using System;
+using System.IO;
 using System.Linq;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using CDriveMaster.Core.Detectors;
 using CDriveMaster.Core.Executors;
 using CDriveMaster.Core.Guards;
+using CDriveMaster.Core.Interfaces;
 using CDriveMaster.Core.Models;
 using CDriveMaster.Core.Providers;
 using CDriveMaster.Core.Services;
@@ -122,7 +126,8 @@ internal class Program
 
         var detector = new WeChatDetector();
         var bucketBuilder = new BucketBuilder();
-        var provider = new WeChatCleanupProvider(detector, bucketBuilder);
+        var wechatRule = LoadRuleFromJson();
+        ICleanupProvider provider = new GenericRuleProvider(wechatRule, detector, bucketBuilder);
         var guard = new PreflightGuard();
         var jobId = Guid.NewGuid().ToString("N");
         var dryRunExecutor = new DryRunExecutor(guard, jobId);
@@ -202,5 +207,43 @@ internal class Program
     private static double ToGb(long bytes)
     {
         return bytes / 1024.0 / 1024.0 / 1024.0;
+    }
+
+    private static CleanupRule LoadRuleFromJson()
+    {
+        string rulePath = ResolveRulePath();
+        string json = File.ReadAllText(rulePath);
+        var options = new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true
+        };
+        options.Converters.Add(new JsonStringEnumConverter());
+
+        var rule = JsonSerializer.Deserialize<CleanupRule>(json, options);
+        if (rule is null)
+        {
+            throw new InvalidOperationException($"Rule file is invalid: {rulePath}");
+        }
+
+        return rule;
+    }
+
+    private static string ResolveRulePath()
+    {
+        string pathInOutput = Path.Combine(AppContext.BaseDirectory, "Rules", "wechat.json");
+        if (File.Exists(pathInOutput))
+        {
+            return pathInOutput;
+        }
+
+        string pathFromWorkingDirectory = Path.GetFullPath(Path.Combine("src", "CDriveMaster.Core", "Rules", "wechat.json"));
+        if (File.Exists(pathFromWorkingDirectory))
+        {
+            return pathFromWorkingDirectory;
+        }
+
+        throw new FileNotFoundException(
+            "Cannot locate rule file wechat.json. Ensure Rules/wechat.json is copied to output.",
+            pathInOutput);
     }
 }
