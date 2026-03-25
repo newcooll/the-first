@@ -13,6 +13,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{1D87B390
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CDriveMaster.Tests", "tests\CDriveMaster.Tests\CDriveMaster.Tests.csproj", "{AC328C8B-F846-4106-B82E-3D0F3E01E7ED}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CDriveMaster.ConsoleApp", "src\CDriveMaster.ConsoleApp\CDriveMaster.ConsoleApp.csproj", "{B9813746-8436-4967-A687-767F52B43069}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -34,10 +36,15 @@ Global
 		{AC328C8B-F846-4106-B82E-3D0F3E01E7ED}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{AC328C8B-F846-4106-B82E-3D0F3E01E7ED}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{AC328C8B-F846-4106-B82E-3D0F3E01E7ED}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B9813746-8436-4967-A687-767F52B43069}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B9813746-8436-4967-A687-767F52B43069}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B9813746-8436-4967-A687-767F52B43069}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B9813746-8436-4967-A687-767F52B43069}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{C2F20690-20D8-4AD5-A761-875F7CF68A85} = {A51ABE80-15CA-4DD1-A87C-429A19A60A5E}
 		{62797C3A-5DC7-4CE8-AEDA-2CC1A4439469} = {A51ABE80-15CA-4DD1-A87C-429A19A60A5E}
 		{AC328C8B-F846-4106-B82E-3D0F3E01E7ED} = {1D87B390-39D8-42C5-AA71-6643D62DCB2A}
+		{B9813746-8436-4967-A687-767F52B43069} = {A51ABE80-15CA-4DD1-A87C-429A19A60A5E}
 	EndGlobalSection
 EndGlobal
