@@ -1,0 +1,54 @@
+name: Bug Report
+description: 提交一个缺陷报告，帮助我们快速定位并修复问题
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: checkboxes
+    id: precheck
+    attributes:
+      label: 提交前确认
+      description: 请在提交前完成以下自检项
+      options:
+        - label: 我已复现该问题。
+          required: true
+        - label: 我已使用“一键导出诊断包”功能获取了 `.zip` 诊断文件。
+          required: true
+
+  - type: dropdown
+    id: module
+    attributes:
+      label: 发生问题的模块
+      description: 请选择问题发生的功能区域
+      options:
+        - WeChat
+        - QQ
+        - Chrome
+        - 系统清理
+        - UI界面
+        - 其他
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤 (Steps to Reproduce)
+      description: 请按顺序描述操作步骤，便于稳定复现
+      placeholder: |
+        1. 打开 ...
+        2. 点击 ...
+        3. 观察到 ...
+    validations:
+      required: true
+
+  - type: markdown
+    attributes:
+      value: "> ⚠️ 请务必将导出的诊断包 (.zip) 拖拽上传至下方区域，否则我们将无法排查您的问题！"
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: 其他补充信息
+      description: 可附上截图、日志片段、系统版本等信息
+      placeholder: 可将截图拖拽到此处并填写补充说明

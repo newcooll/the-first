@@ -27,6 +27,7 @@ public partial class App : Application
 		services.AddTransient<BucketBuilder>();
 		services.AddTransient<RuleCatalog>();
 		services.AddSingleton<AuditLogExporter>();
+		services.AddSingleton<DiagnosticExporter>();
 		services.AddSingleton<IDialogService, MessageBoxDialogService>();
 		services.AddSingleton<IPreviewDialogService, WpfPreviewDialogService>();
 		services.AddSingleton<PreflightGuard>();

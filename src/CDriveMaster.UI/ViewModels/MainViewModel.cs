@@ -1,9 +1,12 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using CDriveMaster.Core.Services;
+using CDriveMaster.UI.Services;
 using System;
 using System.Diagnostics;
 using System.IO;
 using System.Reflection;
+using System.Threading.Tasks;
 
 namespace CDriveMaster.UI.ViewModels;
 
@@ -11,16 +14,24 @@ public partial class MainViewModel : ObservableObject
 {
     private readonly SystemMaintenanceAnalysisViewModel systemMaintenanceViewModel;
     private readonly GenericCleanupViewModel genericCleanupViewModel;
+    private readonly DiagnosticExporter diagExporter;
+    private readonly IDialogService dialogService;
 
     [ObservableProperty]
     private object currentViewModel;
 
     public string AppVersion { get; }
 
-    public MainViewModel(SystemMaintenanceAnalysisViewModel systemMaintenanceViewModel, GenericCleanupViewModel genericCleanupViewModel)
+    public MainViewModel(
+        SystemMaintenanceAnalysisViewModel systemMaintenanceViewModel,
+        GenericCleanupViewModel genericCleanupViewModel,
+        DiagnosticExporter diagExporter,
+        IDialogService dialogService)
     {
         this.systemMaintenanceViewModel = systemMaintenanceViewModel;
         this.genericCleanupViewModel = genericCleanupViewModel;
+        this.diagExporter = diagExporter;
+        this.dialogService = dialogService;
 
         var informationalVersion = Assembly.GetExecutingAssembly()
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
@@ -30,6 +41,29 @@ public partial class MainViewModel : ObservableObject
             : $"v{informationalVersion}";
 
         CurrentViewModel = this.systemMaintenanceViewModel;
+    }
+
+    [RelayCommand]
+    private async Task ExportDiagnosticsAsync()
+    {
+        try
+        {
+            string zipPath = await diagExporter.ExportAsync();
+            await dialogService.ShowInfoAsync(
+                "导出成功",
+                $"诊断包已保存至桌面：{Environment.NewLine}{zipPath}{Environment.NewLine}{Environment.NewLine}请在提交反馈时附带此文件。");
+
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "explorer.exe",
+                Arguments = $"/select,\"{zipPath}\"",
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            await dialogService.ShowErrorAsync("导出失败", ex.Message);
+        }
     }
 
     [RelayCommand]

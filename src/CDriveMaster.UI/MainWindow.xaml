@@ -71,10 +71,20 @@
                             BorderThickness="1" />
                     <Button Content="❓ 帮助文档"
                             Command="{Binding OpenHelpDocsCommand}"
+                            Margin="0,0,8,0"
                             FontSize="11"
                             Padding="8,2"
                             Background="Transparent"
                             BorderBrush="#FFC8D0D8"
+                            BorderThickness="1" />
+                        <Button Content="📦 导出诊断包"
+                            Command="{Binding ExportDiagnosticsCommand}"
+                            FontSize="11"
+                            FontWeight="SemiBold"
+                            Padding="10,2"
+                            Background="#FFE8F4FF"
+                            Foreground="#FF0E4A7A"
+                            BorderBrush="#FF8AB8DD"
                             BorderThickness="1" />
                 </StackPanel>
             </Grid>
