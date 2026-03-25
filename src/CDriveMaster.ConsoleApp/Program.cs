@@ -14,12 +14,14 @@ internal class Program
     private static void Main(string[] args)
     {
         bool isAnalyzeSystem = args.Contains("--analyze-system");
+        bool isApplySystemCleanup = args.Contains("--apply-system-cleanup");
+        bool forceConfirm = args.Contains("--yes-i-know-what-im-doing");
         bool isApply = args.Any(x => string.Equals(x, "--apply", StringComparison.OrdinalIgnoreCase));
         bool safeAutoOnly = args.Any(x => string.Equals(x, "--safe-auto-only", StringComparison.OrdinalIgnoreCase));
 
         Console.WriteLine("=== CDriveMaster v2 Cleanup CLI ===\n");
 
-        if (isAnalyzeSystem)
+        if (isAnalyzeSystem || isApplySystemCleanup)
         {
             if (!PlatformProbe.IsElevated)
             {
@@ -32,6 +34,46 @@ internal class Program
             var operationId = Guid.NewGuid().ToString("N");
             var runner = new DismCommandRunner();
             var analyzer = new DismAnalyzer(runner);
+            var executor = new DismCleanupExecutor(runner);
+
+            if (isApplySystemCleanup)
+            {
+                if (!forceConfirm)
+                {
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.WriteLine("[拦截] 系统组件清理是高危操作。请附加 --yes-i-know-what-im-doing 参数以确认执行。");
+                    Console.ResetColor();
+                    return;
+                }
+
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine("[高危操作] 正在执行 Windows 组件存储真实清理... (本操作不会使用 /ResetBase，不会破坏更新卸载能力)");
+                Console.ResetColor();
+
+                var cleanupResult = executor.ExecuteAsync(operationId).GetAwaiter().GetResult();
+                var cleanupViewModel = new SystemCleanupViewModel(
+                    Title: "WinSxS 组件清理",
+                    Status: cleanupResult.Status,
+                    Duration: cleanupResult.Duration,
+                    ExitCode: cleanupResult.ExitCode,
+                    Message: cleanupResult.Status == ExecutionStatus.Success ? "执行完成" : "执行失败或被拦截");
+
+                Console.WriteLine("\n=== 系统组件清理执行结果 ===");
+                Console.WriteLine($"名称: {cleanupViewModel.Title}");
+                Console.WriteLine($"状态: {cleanupViewModel.Status}");
+                Console.WriteLine($"耗时: {cleanupViewModel.Duration}");
+                Console.WriteLine($"退出码: {cleanupViewModel.ExitCode}");
+                Console.WriteLine($"消息: {cleanupViewModel.Message}");
+
+                if (cleanupViewModel.Status != ExecutionStatus.Success)
+                {
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.WriteLine($"底层错误: {cleanupResult.StdErr}");
+                    Console.ResetColor();
+                }
+
+                return;
+            }
 
             Console.WriteLine("正在调用 DISM 分析系统组件存储，这可能需要几分钟时间，请稍候...");
 

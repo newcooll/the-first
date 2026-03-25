@@ -43,3 +43,11 @@ public sealed record SystemAnalysisViewModel(
     bool CleanupRecommended,
     string Message
 );
+
+public sealed record SystemCleanupViewModel(
+    string Title,
+    ExecutionStatus Status,
+    TimeSpan Duration,
+    int ExitCode,
+    string Message
+);
