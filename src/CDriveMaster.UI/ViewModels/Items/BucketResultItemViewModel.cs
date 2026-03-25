@@ -12,6 +12,8 @@ public partial class BucketResultItemViewModel : ObservableObject
         this.source = source;
     }
 
+    public BucketResult OriginalResult => source;
+
     public string AppName => source.Bucket.AppName;
 
     public string CategoryDescription => source.Bucket.Description;

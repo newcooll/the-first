@@ -38,6 +38,25 @@
                 </Button.Style>
             </Button>
 
+            <Button Content="一键清理 (仅安全项)"
+                    Command="{Binding ApplySafeAutoCommand}"
+                    Width="170"
+                    Height="32"
+                    Margin="0,0,10,0"
+                    Background="#FFFBE9E7"
+                    Foreground="DarkRed">
+                <Button.Style>
+                    <Style TargetType="Button">
+                        <Setter Property="IsEnabled" Value="True" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsBusy}" Value="True">
+                                <Setter Property="IsEnabled" Value="False" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Button.Style>
+            </Button>
+
             <TextBlock Text="{Binding StatusText}" VerticalAlignment="Center" />
         </StackPanel>
 

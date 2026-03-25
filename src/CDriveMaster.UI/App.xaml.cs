@@ -6,6 +6,7 @@ using CDriveMaster.Core.Executors;
 using CDriveMaster.Core.Guards;
 using CDriveMaster.Core.Interfaces;
 using CDriveMaster.Core.Services;
+using CDriveMaster.UI.Services;
 using CDriveMaster.UI.ViewModels;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -25,6 +26,7 @@ public partial class App : Application
 		services.AddTransient<IAppDetector, ChromeDetector>();
 		services.AddTransient<BucketBuilder>();
 		services.AddTransient<RuleCatalog>();
+		services.AddSingleton<IDialogService, MessageBoxDialogService>();
 		services.AddSingleton<PreflightGuard>();
 		services.AddTransient(sp => new DryRunExecutor(
 			sp.GetRequiredService<PreflightGuard>(),
@@ -32,7 +34,7 @@ public partial class App : Application
 		services.AddTransient(sp => new CleanupExecutor(
 			sp.GetRequiredService<PreflightGuard>(),
 			Guid.NewGuid().ToString("N")));
-		services.AddTransient<CleanupPipeline>();
+		services.AddTransient<ICleanupPipeline, CleanupPipeline>();
 
 		services.AddTransient<IDismCommandRunner, DismCommandRunner>();
 		services.AddTransient<DismAnalyzer>();

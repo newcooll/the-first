@@ -7,13 +7,15 @@ using CommunityToolkit.Mvvm.Input;
 using CDriveMaster.Core.Interfaces;
 using CDriveMaster.Core.Models;
 using CDriveMaster.Core.Services;
+using CDriveMaster.UI.Services;
 using CDriveMaster.UI.ViewModels.Items;
 
 namespace CDriveMaster.UI.ViewModels;
 
 public partial class GenericCleanupViewModel : ObservableObject
 {
-    private readonly CleanupPipeline pipeline;
+    private readonly ICleanupPipeline pipeline;
+    private readonly IDialogService dialogService;
 
     public ObservableCollection<ICleanupProvider> AvailableApps { get; } = new();
 
@@ -29,9 +31,10 @@ public partial class GenericCleanupViewModel : ObservableObject
     [ObservableProperty]
     private ObservableCollection<BucketResultItemViewModel> bucketItems = new();
 
-    public GenericCleanupViewModel(RuleCatalog catalog, CleanupPipeline pipeline)
+    public GenericCleanupViewModel(RuleCatalog catalog, ICleanupPipeline pipeline, IDialogService dialogService)
     {
         this.pipeline = pipeline;
+        this.dialogService = dialogService;
 
         foreach (var provider in catalog.GetAllProviders())
         {
@@ -85,6 +88,70 @@ public partial class GenericCleanupViewModel : ObservableObject
         catch (Exception ex)
         {
             StatusText = $"扫描失败: {ex.Message}";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    [RelayCommand]
+    private async Task ApplySafeAutoAsync()
+    {
+        if (SelectedApp is null)
+        {
+            return;
+        }
+
+        var targets = BucketItems
+            .Where(x => x.RawRisk == RiskLevel.SafeAuto && x.OriginalResult.FinalStatus != ExecutionStatus.Success)
+            .ToList();
+
+        if (targets.Count == 0)
+        {
+            await dialogService.ShowInfoAsync("无可执行项", "当前没有可执行的 SafeAuto 项目。请先扫描或检查状态。");
+            return;
+        }
+
+        long estimatedBytes = targets.Sum(x => x.OriginalResult.Bucket.EstimatedSizeBytes);
+        double estimatedMb = estimatedBytes / 1024.0 / 1024.0;
+        bool confirmed = await dialogService.ConfirmAsync(
+            "确认物理清理",
+            $"即将物理清理 {SelectedApp.AppName} 的 {targets.Count} 个 SafeAuto 项目，预计释放 {estimatedMb:F2} MB 空间。此操作不可逆，是否继续？");
+
+        if (!confirmed)
+        {
+            return;
+        }
+
+        IsBusy = true;
+        StatusText = "正在物理清理...";
+
+        try
+        {
+            var targetBuckets = targets
+                .Select(x => x.OriginalResult.Bucket)
+                .ToList();
+
+            var executeResults = await Task.Run(() => pipeline.Execute(targetBuckets, apply: true));
+            var byBucketId = executeResults.ToDictionary(x => x.Bucket.BucketId, x => x);
+
+            for (int i = 0; i < BucketItems.Count; i++)
+            {
+                var existing = BucketItems[i];
+                if (byBucketId.TryGetValue(existing.OriginalResult.Bucket.BucketId, out var updated))
+                {
+                    BucketItems[i] = new BucketResultItemViewModel(updated);
+                }
+            }
+
+            int successCount = executeResults.Count(x => x.FinalStatus == ExecutionStatus.Success);
+            StatusText = $"物理清理完成，成功 {successCount}/{executeResults.Count} 项";
+        }
+        catch (Exception ex)
+        {
+            await dialogService.ShowErrorAsync("物理清理失败", ex.Message);
+            StatusText = $"物理清理失败: {ex.Message}";
         }
         finally
         {

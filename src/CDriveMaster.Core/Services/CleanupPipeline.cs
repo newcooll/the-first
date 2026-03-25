@@ -5,7 +5,7 @@ using CDriveMaster.Core.Models;
 
 namespace CDriveMaster.Core.Services;
 
-public class CleanupPipeline
+public class CleanupPipeline : ICleanupPipeline
 {
     private readonly DryRunExecutor dryRunExecutor;
     private readonly CleanupExecutor cleanupExecutor;
