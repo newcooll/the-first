@@ -9,6 +9,7 @@ $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $uiProject = Join-Path $projectRoot "src/CDriveMaster.UI/CDriveMaster.UI.csproj"
 $coreRules = Join-Path $projectRoot "src/CDriveMaster.Core/Rules"
+$docsPath = Join-Path $projectRoot "docs"
 $publishTemp = Join-Path $projectRoot "artifacts/publish/$RuntimeIdentifier"
 $finalOutput = Join-Path $projectRoot "publish_output"
 
@@ -62,11 +63,15 @@ if (-not $exe) {
 Write-Host "[4/5] Copying executable to publish_output..."
 Copy-Item -Path $exe.FullName -Destination (Join-Path $finalOutput $exe.Name) -Force
 
-Write-Host "[5/5] Copying rules folder to publish_output/Rules..."
+Write-Host "[5/5] Copying rules and docs to publish_output..."
 if (-not (Test-Path $coreRules)) {
     throw "Rules folder not found: $coreRules"
 }
 Copy-Item -Path $coreRules -Destination (Join-Path $finalOutput "Rules") -Recurse -Force
+
+if (Test-Path $docsPath) {
+    Copy-Item -Path $docsPath -Destination (Join-Path $finalOutput "docs") -Recurse -Force
+}
 
 Write-Host "Publish completed successfully."
 Write-Host "Output: $finalOutput"
