@@ -77,3 +77,51 @@
 ## 📝 免责声明
 
 本项目仅供学习与技术交流使用。尽管我们在底层加入了极其严苛的安全护栏，但任何涉及物理文件删除的工具均存
+
+---
+
+## V2.0 架构演进记录（追加）
+
+# C盘清理大师 (CDriveMaster)
+
+🚀 **新一代基于多维特征打分与启发式嗅探的 Windows 磁盘清理引擎。**
+
+传统清理工具依赖“静态路径硬编码”，对流氓软件、绿化版应用及卸载残留无能为力。CDriveMaster V2.0 采用**双轨制启发式扫描引擎 (Dual-Track Heuristic Probing)**，在不影响系统 UI 响应的前提下，精准穿透深层目录，嗅探隐藏的巨型孤儿缓存。
+
+## 🌟 V2.0 核心架构演进
+
+### 1. 双轨制发现引擎 (Dual-Track Engine)
+彻底摒弃“必须先证明安装才能扫描”的线性逻辑，采用双线并行：
+- **活跃应用轨道**：不将注册表（Uninstall 键值）作为硬门禁，而是采用 `加权证据模型 (Evidence Scoring)`。综合注册表、发行商、本地目录痕迹打分，动态决策是否下探。
+- **深层残留轨道 (Orphan Cache)**：无视应用安装状态，基于 `ResidualFingerprint` 直接对 `%LOCALAPPDATA%` 等深水区进行受限 BFS，精准捕捉 `onnxruntime_gpu`、`pdf-cache` 等卸载后残留的深层大体积组件库。
+
+### 2. 多维特征打分算法 (Heuristic Scoring)
+探针不再做绝对路径的 O(N) 全盘搜索，而是通过轻量级 Token 组合打分：
+
+$$
+	ext{Total Score} = w_1 \cdot \text{Token}_{\text{path}} + w_2 \cdot \text{Token}_{\text{file}} + w_3 \cdot \text{Token}_{\text{struct}} + w_4 \cdot \text{Score}_{\text{size}}
+$$
+
+通过提取 `AppTokens` (应用指纹)、`CacheTokens` (缓存特征) 及 `FileMarkers` (大文件特征)，引擎具备“见微知著”的能力，极大提升了对 Quark、剪映 (CapCut) 等缓存落点不稳定应用的捕获率。
+
+### 3. 极致的底层 I/O 性能
+- **内核级免障**：启用现代 .NET 的 `EnumerationOptions`，由 C++ 底层 API 直接拦截 `FileAttributes.ReparsePoint` (防软链接死锁) 和权限黑洞 (`IgnoreInaccessible`)，将 I/O 耗时压缩至秒级。
+- **零阻塞 UI**：结合异步时间片让权法则与后台 `Task.Run`，在百万级碎文件遍历下保持 UI 丝滑（绝不发生主线程 Starvation）。
+
+### 4. 工业级可观测性与安全熔断
+- **白盒链路追踪**：UI 提供“探测链路详情”，清晰展示候选目录的发现、命中特征、淘汰原因及打分明细。
+- **双重安全锁**：针对启发式算法查出的深层缓存，执行物理清理前强制进行高危警示二次确认，防止误删用户本地草稿；遇到文件占用静默跳过并出具“专业战报”。
+
+## 🛠️ 技术栈
+- **Framework**: C# / .NET (WPF / WinUI)
+- **Architecture**: MVVM (CommunityToolkit.Mvvm) / 强类型规则引擎
+- **Concurrency**: `SemaphoreSlim` 并发控流 / 异步 Task 调度
+
+## 🗺️ Roadmap (未来规划)
+- [x] **V1.0**: 基础静态规则清理引擎
+- [x] **V2.0**: 启发式缓存嗅探与多维特征打分 (Current)
+- [ ] **V3.0**: 系统核心组件瘦身 (集成原生 DISM 与 PnPUtil 底层调用，剥离 `WinSxS` 与过期驱动)
+- [ ] **V3.x**: Everything SDK 预筛接口挂载加速
+
+## ⚠️ 免责声明
+本项目涉及深层文件系统 I/O 操作。针对 `[实验性支持]` 的启发式缓存清理，请用户仔细核对后再执行，以免造成不可逆的数据丢失。
