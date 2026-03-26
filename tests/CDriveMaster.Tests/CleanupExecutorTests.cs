@@ -14,7 +14,7 @@ namespace CDriveMaster.Tests;
 public sealed class CleanupExecutorTests
 {
     [Fact]
-    public void Execute_WhenFileIsLocked_ShouldReportFailedAndContinueOthers()
+    public void Execute_WhenFileIsLocked_ShouldReportSkippedAndContinueOthers()
     {
         if (!OperatingSystem.IsWindows())
         {
@@ -47,7 +47,7 @@ public sealed class CleanupExecutorTests
         logs.Should().HaveCount(2);
 
         var lockedLog = logs.Single(x => x.TargetPath.Equals(lockedFilePath, StringComparison.OrdinalIgnoreCase));
-        lockedLog.Status.Should().Be(ExecutionStatus.Failed);
+        lockedLog.Status.Should().Be(ExecutionStatus.Skipped);
         lockedLog.ErrorMessage.Should().NotBeNullOrWhiteSpace();
 
         var normalLog = logs.Single(x => x.TargetPath.Equals(normalFilePath, StringComparison.OrdinalIgnoreCase));

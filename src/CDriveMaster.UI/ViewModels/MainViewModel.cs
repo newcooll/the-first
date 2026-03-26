@@ -1,6 +1,8 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using CommunityToolkit.Mvvm.Messaging;
 using CDriveMaster.Core.Services;
+using CDriveMaster.UI.Messages;
 using CDriveMaster.UI.Services;
 using System;
 using System.Diagnostics;
@@ -14,6 +16,7 @@ public partial class MainViewModel : ObservableObject
 {
     private readonly SystemMaintenanceAnalysisViewModel systemMaintenanceViewModel;
     private readonly GenericCleanupViewModel genericCleanupViewModel;
+    private readonly BasicScanDashboardViewModel basicScanDashboardViewModel;
     private readonly DiagnosticExporter diagExporter;
     private readonly IDialogService dialogService;
 
@@ -25,11 +28,13 @@ public partial class MainViewModel : ObservableObject
     public MainViewModel(
         SystemMaintenanceAnalysisViewModel systemMaintenanceViewModel,
         GenericCleanupViewModel genericCleanupViewModel,
+        BasicScanDashboardViewModel basicScanDashboardViewModel,
         DiagnosticExporter diagExporter,
         IDialogService dialogService)
     {
         this.systemMaintenanceViewModel = systemMaintenanceViewModel;
         this.genericCleanupViewModel = genericCleanupViewModel;
+        this.basicScanDashboardViewModel = basicScanDashboardViewModel;
         this.diagExporter = diagExporter;
         this.dialogService = dialogService;
 
@@ -41,6 +46,14 @@ public partial class MainViewModel : ObservableObject
             : $"v{informationalVersion}";
 
         CurrentViewModel = this.systemMaintenanceViewModel;
+
+        WeakReferenceMessenger.Default.Register<NavigateToAppCleanupMessage>(
+            this,
+            async (_, message) =>
+            {
+                CurrentViewModel = genericCleanupViewModel;
+                await genericCleanupViewModel.NavigateToAppAndScanAsync(message.AppId);
+            });
     }
 
     [RelayCommand]
@@ -82,6 +95,12 @@ public partial class MainViewModel : ObservableObject
     private void MapsToAppCleanup()
     {
         CurrentViewModel = genericCleanupViewModel;
+    }
+
+    [RelayCommand]
+    private void MapsToLargeFileAnalysis()
+    {
+        CurrentViewModel = basicScanDashboardViewModel;
     }
 
     [RelayCommand]

@@ -85,6 +85,8 @@ public partial class GenericCleanupViewModel : ObservableObject
         if (selectedProvider is null)
             return;
 
+        bool showNoDataInfo = false;
+
         IsBusy = true;
         StatusText = $"正在扫描 {selectedProvider.AppName} 数据...";
 
@@ -117,6 +119,9 @@ public partial class GenericCleanupViewModel : ObservableObject
             HasSafeWithPreviewItems = BucketItems.Any(x => x.RawRisk == RiskLevel.SafeWithPreview);
             ExecutionSummary = null;
 
+            long totalEstimatedBytes = BucketItems.Sum(x => x.RawEstimatedSize);
+            showNoDataInfo = BucketItems.Count == 0 || totalEstimatedBytes == 0;
+
             StatusText = results.Count == 0
                 ? $"未发现 {selectedProvider.AppName} 可清理数据"
                 : $"{selectedProvider.AppName} 扫描完成";
@@ -132,6 +137,13 @@ public partial class GenericCleanupViewModel : ObservableObject
         finally
         {
             IsBusy = false;
+        }
+
+        if (showNoDataInfo)
+        {
+            await dialogService.ShowInfoAsync(
+                "扫描完成",
+                $"未在 {selectedProvider.AppName} 中发现需要清理的冗余文件。\n\n原因可能是：\n1. 缓存已被清理\n2. 软件未安装在默认路径\n3. 产生的数据极小");
         }
     }
 
@@ -198,10 +210,7 @@ public partial class GenericCleanupViewModel : ObservableObject
                 x.RawRisk == RiskLevel.SafeWithPreview &&
                 x.OriginalResult.FinalStatus != ExecutionStatus.Success);
 
-            if (executeResults.Any(x => x.FinalStatus != ExecutionStatus.Skipped))
-            {
-                await auditLogExporter.ExportAsync(selectedProvider.AppName, executeResults);
-            }
+            await auditLogExporter.ExportAsync(selectedProvider.AppName, executeResults);
         }
         catch (Exception ex)
         {
@@ -281,11 +290,8 @@ public partial class GenericCleanupViewModel : ObservableObject
                 x.RawRisk == RiskLevel.SafeWithPreview &&
                 x.OriginalResult.FinalStatus != ExecutionStatus.Success);
 
-            if (executeResults.Any(x => x.FinalStatus != ExecutionStatus.Skipped))
-            {
-                var appName = SelectedApp?.AppName ?? "Unknown";
-                await auditLogExporter.ExportAsync(appName, executeResults);
-            }
+            var appName = SelectedApp?.AppName ?? "Unknown";
+            await auditLogExporter.ExportAsync(appName, executeResults);
 
             StatusText = $"预览清理完成，共处理 {executeResults.Count} 个分组";
         }
@@ -316,5 +322,28 @@ public partial class GenericCleanupViewModel : ObservableObject
             RiskLevel.Blocked => 2,
             _ => 3
         };
+    }
+
+    public async Task NavigateToAppAndScanAsync(string appName)
+    {
+        if (string.IsNullOrWhiteSpace(appName))
+        {
+            return;
+        }
+
+        var target = AvailableApps.FirstOrDefault(p =>
+            string.Equals(p.AppName, appName, StringComparison.OrdinalIgnoreCase));
+
+        if (target is null)
+        {
+            return;
+        }
+
+        SelectedApp = target;
+
+        if (!IsBusy)
+        {
+            await ScanAsync();
+        }
     }
 }

@@ -12,6 +12,9 @@
         <DataTemplate DataType="{x:Type viewmodels:GenericCleanupViewModel}">
             <views:GenericCleanupView />
         </DataTemplate>
+        <DataTemplate DataType="{x:Type viewmodels:BasicScanDashboardViewModel}">
+            <views:LargeFileScannerView />
+        </DataTemplate>
     </Window.Resources>
 
     <Grid Margin="16">
@@ -26,9 +29,13 @@
                     Command="{Binding MapsToSystemMaintenanceCommand}"
                     Width="100"
                     Margin="0,0,8,0" />
-                <Button Content="应用清理"
+            <Button Content="应用清理"
                     Command="{Binding MapsToAppCleanupCommand}"
-                    Width="100" />
+                Width="100"
+                Margin="0,0,8,0" />
+            <Button Content="大文件分析"
+                Command="{Binding MapsToLargeFileAnalysisCommand}"
+                Width="100" />
         </StackPanel>
 
         <ContentControl Grid.Row="1" Content="{Binding CurrentViewModel}" />

@@ -25,11 +25,16 @@ public partial class App : Application
 		services.AddTransient<IAppDetector, QQDetector>();
 		services.AddTransient<IAppDetector, ChromeDetector>();
 		services.AddTransient<BucketBuilder>();
+		services.AddTransient<LargeFileScanner>();
+		services.AddTransient<AppPresenceDetector>();
+		services.AddTransient<InstalledAppSurveyService>();
+		services.AddTransient<DeepScanService>();
 		services.AddTransient<RuleCatalog>();
 		services.AddSingleton<AuditLogExporter>();
 		services.AddSingleton<DiagnosticExporter>();
 		services.AddSingleton<IDialogService, MessageBoxDialogService>();
 		services.AddSingleton<IPreviewDialogService, WpfPreviewDialogService>();
+		services.AddSingleton<INavigationService, NavigationService>();
 		services.AddSingleton<PreflightGuard>();
 		services.AddTransient(sp => new DryRunExecutor(
 			sp.GetRequiredService<PreflightGuard>(),
@@ -46,6 +51,9 @@ public partial class App : Application
 		services.AddTransient<SystemMaintenanceAnalysisViewModel>();
 		services.AddTransient<SystemMaintenanceViewModel>();
 		services.AddTransient<GenericCleanupViewModel>();
+		services.AddTransient<TempCleanupCardViewModel>();
+		services.AddTransient<BasicScanDashboardViewModel>();
+		services.AddTransient<DeepScanViewModel>();
 		services.AddTransient<MainViewModel>();
 
 		services.AddSingleton<MainWindow>();

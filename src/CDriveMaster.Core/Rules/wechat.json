@@ -1,7 +1,21 @@
 {
   "AppName": "WeChat",
+  "AppMatchKeywords": [
+    "微信",
+    "WeChat"
+  ],
   "Description": "微信PC版缓存与冗余文件清理",
   "DefaultAction": "DeleteToRecycleBin",
+  "FastScan": {
+    "HotPaths": [
+      "%USERPROFILE%/Documents/WeChat Files",
+      "%APPDATA%/Tencent/WeChat/All Users/data"
+    ],
+    "MaxDepth": 2,
+    "MinSizeThreshold": 52428800,
+    "Category": "AppCache",
+    "IsExperimental": false
+  },
   "Targets": [
     {
       "BaseFolder": "*/FileStorage/Cache",

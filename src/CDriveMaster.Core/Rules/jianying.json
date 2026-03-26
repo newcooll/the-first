@@ -1,0 +1,59 @@
+{
+  "AppName": "Jianying",
+  "AppMatchKeywords": [
+    "Jianying",
+    "JianyingPro",
+    "CapCut",
+    "剪映",
+    "剪映专业版",
+    "ByteDance"
+  ],
+  "Description": "剪映缓存实验性清理规则",
+  "DefaultAction": "DeleteToRecycleBin",
+  "ResidualFingerprints": [
+    {
+      "Parent": "%LOCALAPPDATA%",
+      "PathKeywords": ["ComponentStore", "onnxruntime_gpu", "JianyingPro", "CapCut"],
+      "MaxDepth": 5
+    }
+  ],
+  "FastScan": {
+    "HotPaths": [
+      "%LOCALAPPDATA%\\JianyingPro\\User Data\\Cache",
+      "%LOCALAPPDATA%\\JianyingPro\\Drafts"
+    ],
+    "SearchHints": [
+      {
+        "Parent": "%LOCALAPPDATA%",
+        "DirectoryKeywords": ["Jianying", "CapCut"],
+        "ChildMarkersAny": ["User Data", "Cache", "Projects", "Drafts", "Logs"],
+        "FileMarkersAny": ["draft", "cache", "temp", "preview"],
+        "MaxDepth": 2,
+        "MinCandidateBytes": 20971520
+      },
+      {
+        "Parent": "%APPDATA%",
+        "DirectoryKeywords": ["Jianying", "CapCut"],
+        "ChildMarkersAny": ["User Data", "Cache"],
+        "MaxDepth": 2,
+        "MinCandidateBytes": 20971520
+      }
+    ],
+    "MaxDepth": 2,
+    "MinSizeThreshold": 20971520,
+    "Category": "MediaCache",
+    "IsExperimental": true
+  },
+  "Targets": [
+    {
+      "BaseFolder": "%LOCALAPPDATA%\\JianyingPro\\User Data\\Cache",
+      "Kind": "MediaCache",
+      "RiskLevel": "SafeWithPreview"
+    },
+    {
+      "BaseFolder": "%LOCALAPPDATA%\\JianyingPro\\Drafts",
+      "Kind": "Drafts",
+      "RiskLevel": "SafeWithPreview"
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "AppName": "npm",
+  "AppMatchKeywords": [
+    "Node.js",
+    "npm"
+  ],
+  "Description": "Node.js npm 缓存清理规则（仅开发缓存目录）",
+  "DefaultAction": "DeleteToRecycleBin",
+  "FastScan": {
+    "HotPaths": [
+      "%LOCALAPPDATA%\\npm-cache"
+    ],
+    "MaxDepth": 2,
+    "MinSizeThreshold": 104857600,
+    "Category": "DevCache",
+    "IsExperimental": false
+  },
+  "Targets": [
+    {
+      "BaseFolder": "%LOCALAPPDATA%\\npm-cache",
+      "Kind": "DevCache",
+      "RiskLevel": "SafeAuto"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "AppName": "Windows 系统缓存",
+  "Description": "安全的系统临时文件与下载冗余",
+  "DefaultAction": "DeleteToRecycleBin",
+  "Targets": [
+    {
+      "BaseFolder": "%TEMP%",
+      "Kind": "Cache",
+      "RiskLevel": "SafeAuto"
+    },
+    {
+      "BaseFolder": "%SystemRoot%/SoftwareDistribution/Download",
+      "Kind": "Download",
+      "RiskLevel": "SafeWithPreview"
+    },
+    {
+      "BaseFolder": "%USERPROFILE%/AppData/Local/Temp",
+      "Kind": "Cache",
+      "RiskLevel": "SafeAuto"
+    }
+  ]
+}

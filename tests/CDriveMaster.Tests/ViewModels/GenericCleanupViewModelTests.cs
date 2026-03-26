@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using CDriveMaster.Core.Interfaces;
 using CDriveMaster.Core.Models;
@@ -413,6 +414,14 @@ public sealed class GenericCleanupViewModelTests
             return buckets
                 .Select(x => CreateResult(x.BucketId, x.RiskLevel, ExecutionStatus.Skipped, x.EstimatedSizeBytes))
                 .ToList();
+        }
+
+        public Task<IReadOnlyList<BucketResult>> ExecuteAsync(
+            IReadOnlyList<CleanupBucket> buckets,
+            bool apply,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(Execute(buckets, apply));
         }
 
         public BucketResult ExecuteEntries(CleanupBucket parentBucket, IEnumerable<CleanupEntry> entriesToApply, bool apply)

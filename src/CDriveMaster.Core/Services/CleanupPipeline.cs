@@ -1,5 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using CDriveMaster.Core.Executors;
 using CDriveMaster.Core.Models;
 
@@ -52,6 +54,14 @@ public class CleanupPipeline : ICleanupPipeline
         }
 
         return results.AsReadOnly();
+    }
+
+    public Task<IReadOnlyList<BucketResult>> ExecuteAsync(
+        IReadOnlyList<CleanupBucket> buckets,
+        bool apply,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.Run(() => Execute(buckets, apply), cancellationToken);
     }
 
     public BucketResult ExecuteEntries(CleanupBucket parentBucket, IEnumerable<CleanupEntry> entriesToApply, bool apply)

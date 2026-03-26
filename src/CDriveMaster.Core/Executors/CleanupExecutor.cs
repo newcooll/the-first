@@ -1,8 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
 using CDriveMaster.Core.Guards;
 using CDriveMaster.Core.Models;
-using Microsoft.VisualBasic.FileIO;
 
 namespace CDriveMaster.Core.Executors;
 
@@ -47,19 +48,17 @@ public class CleanupExecutor
                 {
                     if (entry.IsDirectory)
                     {
-                        FileSystem.DeleteDirectory(
-                            entry.Path,
-                            UIOption.OnlyErrorDialogs,
-                            RecycleOption.SendToRecycleBin,
-                            UICancelOption.DoNothing);
+                        if (Directory.Exists(entry.Path))
+                        {
+                            Directory.Delete(entry.Path, recursive: true);
+                        }
                     }
                     else
                     {
-                        FileSystem.DeleteFile(
-                            entry.Path,
-                            UIOption.OnlyErrorDialogs,
-                            RecycleOption.SendToRecycleBin,
-                            UICancelOption.DoNothing);
+                        if (File.Exists(entry.Path))
+                        {
+                            File.Delete(entry.Path);
+                        }
                     }
 
                     logs.Add(new AuditLogItem(
@@ -74,6 +73,40 @@ public class CleanupExecutor
                         Reason: preflight.Reason,
                         Status: ExecutionStatus.Success,
                         ErrorMessage: null));
+                }
+                catch (IOException ex)
+                {
+                    Debug.WriteLine($"Cleanup skipped due to IO lock: {entry.Path}. {ex.Message}");
+                    logs.Add(new AuditLogItem(
+                        JobId: jobId,
+                        BucketId: bucket.BucketId,
+                        TimestampUtc: DateTime.UtcNow,
+                        TargetPath: entry.Path,
+                        TargetSizeBytes: entry.SizeBytes,
+                        Action: bucket.SuggestedAction,
+                        Risk: bucket.RiskLevel,
+                        AppName: bucket.AppName,
+                        Reason: preflight.Reason,
+                        Status: ExecutionStatus.Skipped,
+                        ErrorMessage: ex.Message));
+                    continue;
+                }
+                catch (UnauthorizedAccessException ex)
+                {
+                    Debug.WriteLine($"Cleanup skipped due to permission: {entry.Path}. {ex.Message}");
+                    logs.Add(new AuditLogItem(
+                        JobId: jobId,
+                        BucketId: bucket.BucketId,
+                        TimestampUtc: DateTime.UtcNow,
+                        TargetPath: entry.Path,
+                        TargetSizeBytes: entry.SizeBytes,
+                        Action: bucket.SuggestedAction,
+                        Risk: bucket.RiskLevel,
+                        AppName: bucket.AppName,
+                        Reason: preflight.Reason,
+                        Status: ExecutionStatus.Skipped,
+                        ErrorMessage: ex.Message));
+                    continue;
                 }
                 catch (Exception ex)
                 {

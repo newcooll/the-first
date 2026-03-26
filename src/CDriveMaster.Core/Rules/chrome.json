@@ -1,21 +1,30 @@
 {
   "AppName": "Chrome",
-  "Description": "Chrome 浏览器缓存与冗余文件",
+  "AppMatchKeywords": [
+    "Chrome",
+    "Google Chrome"
+  ],
+  "Description": "Chrome 浏览器缓存清理规则（仅安全缓存目录）",
   "DefaultAction": "DeleteToRecycleBin",
+  "FastScan": {
+    "HotPaths": [
+      "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\Cache",
+      "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\Code Cache"
+    ],
+    "MaxDepth": 2,
+    "MinSizeThreshold": 104857600,
+    "Category": "BrowserCache",
+    "IsExperimental": false
+  },
   "Targets": [
     {
-      "BaseFolder": "*/Cache/Cache_Data",
+      "BaseFolder": "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\Cache",
       "Kind": "BrowserCache",
       "RiskLevel": "SafeAuto"
     },
     {
-      "BaseFolder": "*/Code Cache/js",
-      "Kind": "CodeCache",
-      "RiskLevel": "SafeAuto"
-    },
-    {
-      "BaseFolder": "*/GPUCache",
-      "Kind": "GPUCache",
+      "BaseFolder": "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\Code Cache",
+      "Kind": "BrowserCache",
       "RiskLevel": "SafeAuto"
     }
   ]

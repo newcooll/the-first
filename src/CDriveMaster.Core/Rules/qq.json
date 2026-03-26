@@ -1,7 +1,20 @@
 {
   "AppName": "QQ",
+  "AppMatchKeywords": [
+    "QQ",
+    "Tencent QQ"
+  ],
   "Description": "QQ 缓存与冗余文件清理",
   "DefaultAction": "DeleteToRecycleBin",
+  "FastScan": {
+    "HotPaths": [
+      "%USERPROFILE%\\Documents\\Tencent Files"
+    ],
+    "MaxDepth": 2,
+    "MinSizeThreshold": 52428800,
+    "Category": "AppCache",
+    "IsExperimental": false
+  },
   "Targets": [
     {
       "BaseFolder": "*/Image",

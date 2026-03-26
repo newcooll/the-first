@@ -65,8 +65,7 @@ public sealed class RuleCatalog
 
                 if (detector is null)
                 {
-                    failedRuleErrors.Add($"文件 {Path.GetFileName(file)} 加载失败: 未找到匹配探测器 {rule.AppName}。");
-                    continue;
+                    detector = FallbackDetector.ForRule(rule.AppName);
                 }
 
                 providers.Add(new GenericRuleProvider(rule, detector, bucketBuilder));
@@ -84,5 +83,29 @@ public sealed class RuleCatalog
         }
 
         return providers.AsReadOnly();
+    }
+
+    private sealed class FallbackDetector : IAppDetector
+    {
+        private FallbackDetector(string appName)
+        {
+            AppName = appName;
+        }
+
+        public string AppName { get; }
+
+        public DetectionResult Detect()
+        {
+            return new DetectionResult(
+                Found: true,
+                BasePath: string.Empty,
+                Source: "FallbackDetector",
+                Reason: "No matching detector. Generic provider will use absolute or expanded target paths.");
+        }
+
+        public static FallbackDetector ForRule(string appName)
+        {
+            return new FallbackDetector(appName);
+        }
     }
 }

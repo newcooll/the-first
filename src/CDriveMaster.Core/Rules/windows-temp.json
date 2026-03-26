@@ -1,0 +1,27 @@
+{
+  "AppName": "系统临时文件",
+  "Description": "包含 Windows 系统产生的各类临时文件与软件通用缓存残留",
+  "DefaultAction": "DeleteToRecycleBin",
+  "Targets": [
+    {
+      "BaseFolder": "%TEMP%",
+      "Kind": "Cache",
+      "RiskLevel": "SafeAuto"
+    },
+    {
+      "BaseFolder": "%SystemRoot%/Temp",
+      "Kind": "Cache",
+      "RiskLevel": "SafeAuto"
+    },
+    {
+      "BaseFolder": "%LocalAppData%/Microsoft/Windows/INetCache",
+      "Kind": "BrowserCache",
+      "RiskLevel": "SafeAuto"
+    },
+    {
+      "BaseFolder": "%LocalAppData%/CrashDumps",
+      "Kind": "CrashDump",
+      "RiskLevel": "SafeAuto"
+    }
+  ]
+}
