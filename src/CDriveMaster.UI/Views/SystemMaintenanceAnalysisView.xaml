@@ -99,13 +99,18 @@
                           IsChecked="{Binding IsConfirmed, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                           Margin="0,0,0,8" />
 
-                <Button Command="{Binding CleanupCommand}" Width="140" Height="32" HorizontalAlignment="Left">
+                <Button Command="{Binding CleanupCommand}"
+                        Width="220"
+                        Height="32"
+                        HorizontalAlignment="Left"
+                        IsEnabled="False"
+                        ToolTip="系统组件瘦身执行链路开发中，当前版本已熔断该入口。">
                     <Button.Style>
                         <Style TargetType="Button">
-                            <Setter Property="Content" Value="执行真实清理" />
+                            <Setter Property="Content" Value="执行真实清理 (开发中，已熔断)" />
                             <Style.Triggers>
                                 <DataTrigger Binding="{Binding IsBusy}" Value="True">
-                                    <Setter Property="Content" Value="正在清理中..." />
+                                    <Setter Property="Content" Value="执行入口已熔断" />
                                 </DataTrigger>
                             </Style.Triggers>
                         </Style>
