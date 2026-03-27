@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.ObjectModel;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -8,6 +8,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Text;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
@@ -22,6 +23,7 @@ namespace CDriveMaster.UI.ViewModels;
 
 public partial class BasicScanDashboardViewModel : ObservableObject
 {
+    internal const long ReverseAttributionMinimumBytes = 100L * 1024L * 1024L;
     private readonly LargeFileScanner scanner;
     private readonly RuleCatalog ruleCatalog;
     private readonly AppPresenceDetector appPresenceDetector;
@@ -116,24 +118,99 @@ public partial class BasicScanDashboardViewModel : ObservableObject
 
         try
         {
-            var tempBuckets = await Task.Run(GetSystemTempBuckets, cts.Token);
+            var providers = ruleCatalog.GetAllProviders().OfType<GenericRuleProvider>().ToList();
+            var rules = providers
+                .Select(provider => provider.Rule)
+                .ToList();
+            var tempBuckets = await Task.Run(() => GetSystemTempBuckets(providers), cts.Token);
             var largeFiles = isFullScan
                 ? await scanner.ScanFullAsync(progress, ct: cts.Token)
                 : await scanner.ScanFastAsync(progress, ct: cts.Token);
-            var hotspots = await ProbeHotspotsAsync(cts.Token);
-            var residualHotspots = await ProbeResidualHotspotsAsync(cts.Token);
+            var reverseAttributedHotspots = BuildReverseAttributedHotspots(largeFiles, rules);
 
             var groups = BuildGroups(tempBuckets, largeFiles);
             await Application.Current.Dispatcher.InvokeAsync(() =>
             {
                 ReplaceScanGroups(groups);
-                ReplaceAppHotspots(hotspots);
-                ReplaceResidualHotspots(residualHotspots);
+                ReplaceAppHotspots(reverseAttributedHotspots);
+                ReplaceResidualHotspots(Array.Empty<FastScanFinding>());
             });
 
-            StatusText = isFullScan
-                ? $"全盘扫描完成，已生成 {ScanGroups.Count} 个分组"
-                : $"快速扫描完成，已生成 {ScanGroups.Count} 个分组";
+            IsIndeterminate = true;
+            bool hotspotAnalysisFailed = false;
+            bool residualAnalysisFailed = false;
+
+            StatusText = "正在分析应用热点...";
+            try
+            {
+                var hotspots = await ProbeHotspotsAsync(
+                    providers,
+                    cts.Token,
+                    finding => Application.Current.Dispatcher.Invoke(() => MergeAppHotspot(finding)));
+                await Application.Current.Dispatcher.InvokeAsync(() =>
+                {
+                    ReplaceAppHotspots(CombineAppHotspots(hotspots, reverseAttributedHotspots));
+                });
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                hotspotAnalysisFailed = true;
+                Debug.WriteLine($"应用热点分析访问受限: {ex}");
+            }
+            catch (IOException ex)
+            {
+                hotspotAnalysisFailed = true;
+                Debug.WriteLine($"应用热点分析 I/O 异常: {ex}");
+            }
+            catch (Exception ex)
+            {
+                hotspotAnalysisFailed = true;
+                Debug.WriteLine($"应用热点分析失败: {ex}");
+            }
+
+            StatusText = "正在分析残留痕迹...";
+            try
+            {
+                var residualHotspots = await ProbeResidualHotspotsAsync(
+                    providers,
+                    cts.Token,
+                    finding => Application.Current.Dispatcher.Invoke(() => MergeResidualHotspot(finding)));
+                await Application.Current.Dispatcher.InvokeAsync(() =>
+                {
+                    ReplaceResidualHotspots(residualHotspots);
+                });
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                residualAnalysisFailed = true;
+                Debug.WriteLine($"残留痕迹分析访问受限: {ex}");
+            }
+            catch (IOException ex)
+            {
+                residualAnalysisFailed = true;
+                Debug.WriteLine($"残留痕迹分析 I/O 异常: {ex}");
+            }
+            catch (Exception ex)
+            {
+                residualAnalysisFailed = true;
+                Debug.WriteLine($"残留痕迹分析失败: {ex}");
+            }
+
+            StatusText = hotspotAnalysisFailed || residualAnalysisFailed
+                ? isFullScan
+                    ? $"全盘扫描完成，部分热点分析失败，已生成 {ScanGroups.Count} 个分组"
+                    : $"快速扫描完成，部分热点分析失败，已生成 {ScanGroups.Count} 个分组"
+                : isFullScan
+                    ? $"全盘扫描完成，已生成 {ScanGroups.Count} 个分组"
+                    : $"快速扫描完成，已生成 {ScanGroups.Count} 个分组";
             IsIndeterminate = false;
             ProgressValue = 100;
         }
@@ -281,17 +358,80 @@ public partial class BasicScanDashboardViewModel : ObservableObject
         }
 
         var trace = finding.Trace;
-        string message =
-            $"应用: {finding.AppName}{Environment.NewLine}" +
-            $"热点状态: {(finding.IsHotspot ? "已达热点阈值" : "未达热点阈值")}{Environment.NewLine}" +
-            $"证据得分: {trace.EvidenceScore}{Environment.NewLine}" +
-            $"命中证据: {(trace.MatchedEvidences.Count == 0 ? "无" : string.Join("; ", trace.MatchedEvidences))}{Environment.NewLine}" +
-            $"候选目录: {(trace.CandidateDirectories.Count == 0 ? "无" : string.Join("; ", trace.CandidateDirectories))}{Environment.NewLine}" +
-            $"通过验证目录: {(trace.VerifiedDirectories.Count == 0 ? "无" : string.Join("; ", trace.VerifiedDirectories))}{Environment.NewLine}" +
-            $"淘汰目录: {(trace.RejectedDirectories.Count == 0 ? "无" : string.Join("; ", trace.RejectedDirectories))}{Environment.NewLine}" +
-            $"淘汰原因: {(trace.RejectReasons.Count == 0 ? "无" : string.Join("; ", trace.RejectReasons))}";
+        var messageBuilder = new StringBuilder();
+        messageBuilder.AppendLine($"应用: {finding.AppName}");
+        messageBuilder.AppendLine($"热点状态: {(finding.IsHotspot ? "已达热点阈值" : "未达热点阈值")}");
+        messageBuilder.AppendLine($"证据得分: {trace.EvidenceScore}");
+        messageBuilder.AppendLine($"命中证据: {FormatTraceEntries(trace.MatchedEvidences)}");
+        messageBuilder.AppendLine($"加权过程: {FormatTraceEntries(trace.MatchHistory)}");
+        messageBuilder.AppendLine($"候选目录: {FormatTraceEntries(trace.CandidateDirectories)}");
+        messageBuilder.AppendLine($"通过验证目录: {FormatTraceEntries(trace.VerifiedDirectories)}");
+        messageBuilder.AppendLine($"淘汰目录: {FormatTraceEntries(trace.RejectedDirectories)}");
+        messageBuilder.AppendLine($"淘汰原因: {FormatTraceEntries(trace.RejectReasons)}");
+        messageBuilder.Append($"最终结论: {trace.FinalDecision}");
 
-        _ = dialogService.ShowInfoAsync("探测链路详情", message);
+        _ = dialogService.ShowInfoAsync("探测链路详情", messageBuilder.ToString());
+    }
+
+    private static string FormatTraceEntries(
+        IReadOnlyList<string>? entries,
+        int maxItems = 12,
+        int maxChars = 1600)
+    {
+        if (entries is null || entries.Count == 0)
+        {
+            return "无";
+        }
+
+        var builder = new StringBuilder();
+        int shownCount = 0;
+        foreach (var entry in entries)
+        {
+            if (string.IsNullOrWhiteSpace(entry))
+            {
+                continue;
+            }
+
+            if (shownCount >= maxItems)
+            {
+                break;
+            }
+
+            if (builder.Length > 0)
+            {
+                builder.Append("; ");
+            }
+
+            int remainingChars = maxChars - builder.Length;
+            if (remainingChars <= 0)
+            {
+                break;
+            }
+
+            string value = entry.Length > remainingChars
+                ? entry[..Math.Max(remainingChars - 1, 0)] + "…"
+                : entry;
+
+            builder.Append(value);
+            shownCount++;
+
+            if (builder.Length >= maxChars)
+            {
+                break;
+            }
+        }
+
+        if (shownCount == 0)
+        {
+            return "无";
+        }
+
+        if (shownCount < entries.Count)
+        {
+            return $"{builder} ……（共 {entries.Count} 项，仅显示前 {shownCount} 项）";
+        }
+
+        return builder.ToString();
     }
 
     [RelayCommand]
@@ -395,19 +535,21 @@ public partial class BasicScanDashboardViewModel : ObservableObject
             item.RiskLevel == RiskLevel.SafeAuto);
     }
 
-    private IReadOnlyList<CleanupBucket> GetSystemTempBuckets()
+    private IReadOnlyList<CleanupBucket> GetSystemTempBuckets(IReadOnlyList<GenericRuleProvider> providers)
     {
-        var provider = ruleCatalog.GetAllProviders()
+        var provider = providers
             .FirstOrDefault(p => string.Equals(p.AppName, "系统临时文件", StringComparison.OrdinalIgnoreCase));
 
         return provider?.GetBuckets() ?? Array.Empty<CleanupBucket>();
     }
 
-    private async Task<IReadOnlyList<FastScanFinding>> ProbeHotspotsAsync(CancellationToken ct)
+    private async Task<IReadOnlyList<FastScanFinding>> ProbeHotspotsAsync(
+        IReadOnlyList<GenericRuleProvider> providers,
+        CancellationToken ct,
+        Action<FastScanFinding>? onFinding = null)
     {
         var (findings, scoreByRule) = await Task.Run(async () =>
         {
-            var providers = ruleCatalog.GetAllProviders().OfType<GenericRuleProvider>().ToList();
             if (providers.Count == 0)
             {
                 return (Array.Empty<FastScanFinding?>(), new Dictionary<string, AppEvidenceScore>(StringComparer.OrdinalIgnoreCase));
@@ -434,6 +576,9 @@ public partial class BasicScanDashboardViewModel : ObservableObject
 
             var activeProviders = providers
                 .Where(provider => allowedRuleNames.Contains(provider.Rule.AppName))
+                .OrderByDescending(provider =>
+                    scoreByRuleLocal.TryGetValue(provider.Rule.AppName, out var score) ? score.TotalScore : 0)
+                .ThenByDescending(provider => provider.Rule.FastScan?.HotPaths.Count ?? 0)
                 .ToList();
             if (activeProviders.Count == 0)
             {
@@ -441,39 +586,57 @@ public partial class BasicScanDashboardViewModel : ObservableObject
             }
 
             var tasks = activeProviders
-                .Select(provider => provider.ProbeAsync(provider.Rule, ct))
+                .Select(async provider => new
+                {
+                    provider.Rule.AppName,
+                    Finding = await provider.ProbeAsync(provider.Rule, ct)
+                })
                 .ToList();
 
-            var localFindings = await Task.WhenAll(tasks);
-            return (localFindings, scoreByRuleLocal);
+            var localFindings = new List<FastScanFinding?>();
+            while (tasks.Count > 0)
+            {
+                var completedTask = await Task.WhenAny(tasks);
+                tasks.Remove(completedTask);
+
+                var completed = await completedTask;
+                if (completed.Finding is null)
+                {
+                    continue;
+                }
+
+                var value = completed.Finding;
+                if (scoreByRuleLocal.TryGetValue(value.AppId, out var evidenceScore))
+                {
+                    value = value with
+                    {
+                        Trace = value.Trace with
+                        {
+                            EvidenceScore = evidenceScore.TotalScore,
+                            MatchedEvidences = new List<string>(evidenceScore.MatchedEvidences)
+                        }
+                    };
+                }
+
+                localFindings.Add(value);
+                onFinding?.Invoke(value);
+            }
+
+            return (localFindings.ToArray(), scoreByRuleLocal);
         }, ct);
 
         return findings
             .Where(finding => finding is not null)
-            .Select(finding =>
-            {
-                var value = finding!;
-                if (!scoreByRule.TryGetValue(value.AppId, out var evidenceScore))
-                {
-                    return value;
-                }
-
-                return value with
-                {
-                    Trace = value.Trace with
-                    {
-                        EvidenceScore = evidenceScore.TotalScore,
-                        MatchedEvidences = new List<string>(evidenceScore.MatchedEvidences)
-                    }
-                };
-            })
+            .Select(finding => finding!)
             .OrderByDescending(finding => finding.TotalSizeBytes)
             .ToList();
     }
 
-    private async Task<IReadOnlyList<FastScanFinding>> ProbeResidualHotspotsAsync(CancellationToken ct)
+    private async Task<IReadOnlyList<FastScanFinding>> ProbeResidualHotspotsAsync(
+        IReadOnlyList<GenericRuleProvider> providers,
+        CancellationToken ct,
+        Action<FastScanFinding>? onFinding = null)
     {
-        var providers = ruleCatalog.GetAllProviders().OfType<GenericRuleProvider>().ToList();
         if (providers.Count == 0)
         {
             return Array.Empty<FastScanFinding>();
@@ -488,12 +651,59 @@ public partial class BasicScanDashboardViewModel : ObservableObject
         }
 
         var tasks = residualProviders
-            .Select(provider => provider.ScanResiduesAsync(provider.Rule, ct))
+            .Select(async provider => await provider.ScanResiduesAsync(provider.Rule, ct))
             .ToList();
 
-        var results = await Task.WhenAll(tasks);
-        return results
-            .SelectMany(x => x)
+        var findings = new List<FastScanFinding>();
+        while (tasks.Count > 0)
+        {
+            var completedTask = await Task.WhenAny(tasks);
+            tasks.Remove(completedTask);
+
+            var result = await completedTask;
+            foreach (var finding in result)
+            {
+                findings.Add(finding);
+                onFinding?.Invoke(finding);
+            }
+        }
+
+        return findings
+            .OrderByDescending(finding => finding.TotalSizeBytes)
+            .ToList();
+    }
+
+    internal static IReadOnlyList<FastScanFinding> BuildReverseAttributedHotspots(
+        IReadOnlyList<LargeFileItem> largeFiles,
+        IReadOnlyList<CleanupRule> rules)
+    {
+        if (largeFiles.Count == 0 || rules.Count == 0)
+        {
+            return Array.Empty<FastScanFinding>();
+        }
+
+        var aggregatedMatches = new Dictionary<string, ReverseAttributedMatch>(StringComparer.OrdinalIgnoreCase);
+        foreach (var file in largeFiles
+                     .Where(file => file.SizeBytes >= ReverseAttributionMinimumBytes)
+                     .OrderByDescending(file => file.SizeBytes))
+        {
+            var match = MatchLargeFileToRule(file, rules);
+            if (match is null)
+            {
+                continue;
+            }
+
+            if (!aggregatedMatches.TryGetValue(match.Rule.AppName, out var existing))
+            {
+                aggregatedMatches[match.Rule.AppName] = match;
+                continue;
+            }
+
+            aggregatedMatches[match.Rule.AppName] = existing.Merge(match);
+        }
+
+        return aggregatedMatches.Values
+            .Select(BuildReverseAttributedFinding)
             .OrderByDescending(finding => finding.TotalSizeBytes)
             .ToList();
     }
@@ -578,10 +788,52 @@ public partial class BasicScanDashboardViewModel : ObservableObject
         RefreshDashboardTotals();
     }
 
+    private void MergeAppHotspot(FastScanFinding hotspot)
+    {
+        int existingIndex = AppHotspots
+            .Select((item, index) => new { item, index })
+            .Where(entry => string.Equals(entry.item.AppId, hotspot.AppId, StringComparison.OrdinalIgnoreCase))
+            .Select(entry => entry.index)
+            .FirstOrDefault(-1);
+
+        if (existingIndex >= 0)
+        {
+            AppHotspots[existingIndex] = hotspot;
+        }
+        else
+        {
+            AppHotspots.Add(hotspot);
+        }
+
+        RefreshDashboardTotals();
+    }
+
     private void ReplaceResidualHotspots(IReadOnlyList<FastScanFinding> hotspots)
     {
         ResidualHotspots.Clear();
         foreach (var hotspot in hotspots)
+        {
+            ResidualHotspots.Add(hotspot);
+        }
+
+        RefreshDashboardTotals();
+    }
+
+    private void MergeResidualHotspot(FastScanFinding hotspot)
+    {
+        int existingIndex = ResidualHotspots
+            .Select((item, index) => new { item, index })
+            .Where(entry =>
+                string.Equals(entry.item.AppId, hotspot.AppId, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(entry.item.PrimaryPath, hotspot.PrimaryPath, StringComparison.OrdinalIgnoreCase))
+            .Select(entry => entry.index)
+            .FirstOrDefault(-1);
+
+        if (existingIndex >= 0)
+        {
+            ResidualHotspots[existingIndex] = hotspot;
+        }
+        else
         {
             ResidualHotspots.Add(hotspot);
         }
@@ -618,6 +870,348 @@ public partial class BasicScanDashboardViewModel : ObservableObject
                 .Where(item => item.IsHotspot)
                 .Sum(item => item.TotalSizeBytes);
         TotalFoundBytes = groupBytes + hotspotBytes;
+    }
+
+    private static IReadOnlyList<FastScanFinding> CombineAppHotspots(
+        IReadOnlyList<FastScanFinding> primary,
+        IReadOnlyList<FastScanFinding> fallback)
+    {
+        var merged = fallback.ToDictionary(item => item.AppId, StringComparer.OrdinalIgnoreCase);
+        foreach (var item in primary)
+        {
+            merged[item.AppId] = item;
+        }
+
+        return merged.Values
+            .OrderByDescending(item => item.TotalSizeBytes)
+            .ToList();
+    }
+
+    private static ReverseAttributedMatch? MatchLargeFileToRule(
+        LargeFileItem file,
+        IReadOnlyList<CleanupRule> rules)
+    {
+        ReverseAttributedMatch? bestMatch = null;
+        foreach (var rule in rules)
+        {
+            if (rule.FastScan is null)
+            {
+                continue;
+            }
+
+            var match = BuildReverseAttributedMatch(file, rule);
+            if (match is null)
+            {
+                continue;
+            }
+
+            if (bestMatch is null || match.Score > bestMatch.Score)
+            {
+                bestMatch = match;
+            }
+        }
+
+        return bestMatch;
+    }
+
+    private static ReverseAttributedMatch? BuildReverseAttributedMatch(LargeFileItem file, CleanupRule rule)
+    {
+        string normalizedPath = file.FilePath.Replace('/', '\\');
+        var explicitRoots = EnumerateRuleRoots(rule)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        string? explicitRoot = explicitRoots
+            .Where(root => normalizedPath.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(root => root.Length)
+            .FirstOrDefault();
+
+        var appKeywords = EnumerateAppKeywords(rule).ToArray();
+        var cacheKeywords = EnumerateCacheKeywords(rule).ToArray();
+
+        int score = 0;
+        bool isExplicit = false;
+        if (!string.IsNullOrWhiteSpace(explicitRoot))
+        {
+            score += 1000 + explicitRoot.Length;
+            isExplicit = true;
+        }
+
+        bool matchedAppKeyword = appKeywords.Any(keyword =>
+            normalizedPath.Contains(keyword, StringComparison.OrdinalIgnoreCase));
+        if (matchedAppKeyword)
+        {
+            score += 120;
+        }
+
+        bool matchedCacheKeyword = cacheKeywords.Any(keyword =>
+            normalizedPath.Contains(keyword, StringComparison.OrdinalIgnoreCase));
+        if (matchedCacheKeyword)
+        {
+            score += 40;
+        }
+
+        if (!isExplicit && !matchedAppKeyword)
+        {
+            return null;
+        }
+
+        if (!isExplicit && !matchedCacheKeyword && file.SizeBytes < 500L * 1024L * 1024L)
+        {
+            return null;
+        }
+
+        string primaryPath = explicitRoot ?? Path.GetDirectoryName(normalizedPath) ?? normalizedPath;
+        string finalDecision = isExplicit
+            ? "通过大文件反向归因命中规则根路径"
+            : "通过大文件反向归因命中应用关键词与缓存关键词";
+
+        return new ReverseAttributedMatch(
+            rule,
+            score,
+            file.SizeBytes,
+            primaryPath,
+            normalizedPath,
+            isExplicit,
+            new List<LargeFileItem> { file },
+            new ProbeTraceInfo(
+                0,
+                new List<string>(),
+                new List<string> { normalizedPath },
+                new List<string> { primaryPath },
+                new List<string>(),
+                new List<string>(),
+                new List<string>
+                {
+                    $"大文件命中 {file.FileName} ({file.DisplaySize})",
+                    finalDecision
+                },
+                finalDecision));
+    }
+
+    private static FastScanFinding BuildReverseAttributedFinding(ReverseAttributedMatch match)
+    {
+        long threshold = match.Rule.FastScan?.MinSizeThreshold ?? ReverseAttributionMinimumBytes;
+        bool isHotspot = match.TotalSizeBytes >= Math.Max(threshold, ReverseAttributionMinimumBytes);
+        string finalDecision = isHotspot
+            ? "通过深度扫描大文件反向归因，确认存在大体积应用缓存"
+            : "通过深度扫描大文件反向归因，疑似存在应用缓存但总体积未达热点阈值";
+
+        var trace = match.Trace with
+        {
+            CandidateDirectories = match.Files
+                .Select(file => file.FilePath)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList(),
+            VerifiedDirectories = new List<string> { match.PrimaryPath },
+            MatchHistory = match.Files
+                .OrderByDescending(file => file.SizeBytes)
+                .Select(file => $"大文件反向归因: {file.FilePath} ({file.DisplaySize})")
+                .Append(match.Trace.FinalDecision)
+                .ToList(),
+            FinalDecision = finalDecision
+        };
+
+        return new FastScanFinding
+        {
+            AppId = match.Rule.AppName,
+            SizeBytes = match.TotalSizeBytes,
+            Category = match.Rule.FastScan?.Category ?? "LargeFileAttribution",
+            PrimaryPath = match.PrimaryPath,
+            SourcePath = match.Files[0].FilePath,
+            IsExactSize = true,
+            DisplaySize = CDriveMaster.Core.Utilities.SizeFormatter.Format(match.TotalSizeBytes),
+            IsExperimental = match.Rule.FastScan?.IsExperimental ?? false,
+            Trace = trace,
+            IsHotspot = isHotspot,
+            IsHeuristicMatch = !match.IsExplicitRootMatch,
+            OriginalBucket = null
+        };
+    }
+
+    private static IEnumerable<string> EnumerateRuleRoots(CleanupRule rule)
+    {
+        foreach (var target in rule.Targets)
+        {
+            string? expanded = ExpandRulePath(target.BaseFolder);
+            if (!string.IsNullOrWhiteSpace(expanded))
+            {
+                yield return expanded;
+            }
+        }
+
+        if (rule.FastScan?.HotPaths is null)
+        {
+            yield break;
+        }
+
+        foreach (var hotPath in rule.FastScan.HotPaths)
+        {
+            string? expanded = ExpandRulePath(hotPath);
+            if (!string.IsNullOrWhiteSpace(expanded))
+            {
+                yield return expanded;
+            }
+        }
+    }
+
+    private static IEnumerable<string> EnumerateAppKeywords(CleanupRule rule)
+    {
+        foreach (var keyword in rule.AppMatchKeywords ?? Array.Empty<string>())
+        {
+            if (!string.IsNullOrWhiteSpace(keyword))
+            {
+                yield return keyword.Trim();
+            }
+        }
+
+        if (rule.FastScan?.HeuristicSearchHints is null)
+        {
+            yield break;
+        }
+
+        foreach (var hint in rule.FastScan.HeuristicSearchHints)
+        {
+            foreach (var token in hint.AppTokens)
+            {
+                if (!string.IsNullOrWhiteSpace(token))
+                {
+                    yield return token.Trim();
+                }
+            }
+        }
+    }
+
+    private static IEnumerable<string> EnumerateCacheKeywords(CleanupRule rule)
+    {
+        if (rule.FastScan?.HeuristicSearchHints is not null)
+        {
+            foreach (var hint in rule.FastScan.HeuristicSearchHints)
+            {
+                foreach (var token in hint.CacheTokens)
+                {
+                    if (!string.IsNullOrWhiteSpace(token))
+                    {
+                        yield return token.Trim();
+                    }
+                }
+
+                foreach (var token in hint.FileMarkersAny)
+                {
+                    if (!string.IsNullOrWhiteSpace(token))
+                    {
+                        yield return token.Trim();
+                    }
+                }
+            }
+        }
+
+        if (rule.FastScan?.SearchHints is null)
+        {
+            yield break;
+        }
+
+        foreach (var hint in rule.FastScan.SearchHints)
+        {
+            foreach (var token in hint.ChildMarkersAny)
+            {
+                if (!string.IsNullOrWhiteSpace(token))
+                {
+                    yield return token.Trim();
+                }
+            }
+
+            foreach (var token in hint.FileMarkersAny)
+            {
+                if (!string.IsNullOrWhiteSpace(token))
+                {
+                    yield return token.Trim();
+                }
+            }
+        }
+    }
+
+    private static string? ExpandRulePath(string rawPath)
+    {
+        if (string.IsNullOrWhiteSpace(rawPath))
+        {
+            return null;
+        }
+
+        try
+        {
+            string normalized = rawPath.Replace('/', '\\');
+            string expanded = normalized
+                .Replace("%LOCALAPPDATA%", Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), StringComparison.OrdinalIgnoreCase)
+                .Replace("%APPDATA%", Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), StringComparison.OrdinalIgnoreCase)
+                .Replace("%PROGRAMDATA%", Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), StringComparison.OrdinalIgnoreCase);
+            expanded = Environment.ExpandEnvironmentVariables(expanded);
+            return string.IsNullOrWhiteSpace(expanded) ? null : expanded.TrimEnd('\\');
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
+    }
+
+    private sealed record ReverseAttributedMatch(
+        CleanupRule Rule,
+        int Score,
+        long TotalSizeBytes,
+        string PrimaryPath,
+        string SourcePath,
+        bool IsExplicitRootMatch,
+        List<LargeFileItem> Files,
+        ProbeTraceInfo Trace)
+    {
+        public ReverseAttributedMatch Merge(ReverseAttributedMatch other)
+        {
+            string mergedPrimaryPath = string.Equals(PrimaryPath, other.PrimaryPath, StringComparison.OrdinalIgnoreCase)
+                ? PrimaryPath
+                : GetCommonAncestor(PrimaryPath, other.PrimaryPath) ?? PrimaryPath;
+
+            var mergedFiles = Files
+                .Concat(other.Files)
+                .GroupBy(file => file.FilePath, StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.OrderByDescending(file => file.SizeBytes).First())
+                .ToList();
+
+            return this with
+            {
+                Score = Math.Max(Score, other.Score),
+                TotalSizeBytes = TotalSizeBytes + other.TotalSizeBytes,
+                PrimaryPath = mergedPrimaryPath,
+                SourcePath = Files[0].SizeBytes >= other.Files[0].SizeBytes ? SourcePath : other.SourcePath,
+                IsExplicitRootMatch = IsExplicitRootMatch || other.IsExplicitRootMatch,
+                Files = mergedFiles
+            };
+        }
+    }
+
+    private static string? GetCommonAncestor(string pathA, string pathB)
+    {
+        var segmentsA = pathA.Split(new[] { '\\' }, StringSplitOptions.RemoveEmptyEntries);
+        var segmentsB = pathB.Split(new[] { '\\' }, StringSplitOptions.RemoveEmptyEntries);
+        int commonLength = 0;
+        while (commonLength < segmentsA.Length
+            && commonLength < segmentsB.Length
+            && string.Equals(segmentsA[commonLength], segmentsB[commonLength], StringComparison.OrdinalIgnoreCase))
+        {
+            commonLength++;
+        }
+
+        if (commonLength == 0)
+        {
+            return null;
+        }
+
+        if (commonLength == 1 && segmentsA[0].EndsWith(":", StringComparison.OrdinalIgnoreCase))
+        {
+            return segmentsA[0] + "\\";
+        }
+
+        return string.Join("\\", segmentsA.Take(commonLength));
     }
 
     private void UnsubscribeAllItems()

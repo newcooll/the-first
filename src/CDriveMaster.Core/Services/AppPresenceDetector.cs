@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Runtime.Versioning;
 using System.Threading.Tasks;
@@ -24,9 +25,7 @@ public sealed class AppPresenceDetector
             {
                 var score = new AppEvidenceScore { AppId = rule.AppName };
                 var evidences = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                var keywords = (rule.AppMatchKeywords ?? Array.Empty<string>())
-                    .Where(keyword => !string.IsNullOrWhiteSpace(keyword))
-                    .ToArray();
+                var keywords = BuildPresenceKeywords(rule);
 
                 if (keywords.Length > 0)
                 {
@@ -75,6 +74,16 @@ public sealed class AppPresenceDetector
                     }
                 }
 
+                if (HasDirectFastScanPath(rule, out string? directPathEvidence))
+                {
+                    var evidence = $"FastScanPath:{directPathEvidence}";
+                    if (evidences.Add(evidence))
+                    {
+                        score.TotalScore += 4;
+                        score.MatchedEvidences.Add(evidence);
+                    }
+                }
+
                 Debug.WriteLine($"[AppSurvey] {score.AppId} 得分: {score.TotalScore}, 证据: {string.Join(", ", score.MatchedEvidences)}");
                 bool isExperimental = rule.FastScan?.IsExperimental == true;
                 int threshold = isExperimental ? 2 : 4;
@@ -113,40 +122,14 @@ public sealed class AppPresenceDetector
         .Select(path => path!)
         .ToList();
 
-        var parentCandidates = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var parentCandidates = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
-        if (rule.FastScan?.SearchHints is not null)
+        AddFastScanParents(rule, parentCandidates);
+
+        foreach (var entry in parentCandidates)
         {
-            foreach (var searchHint in rule.FastScan.SearchHints)
-            {
-                string? parent = ExpandSafePath(searchHint.Parent);
-                if (!string.IsNullOrWhiteSpace(parent))
-                {
-                    parentCandidates.Add(parent);
-                }
-            }
-        }
-
-        if (rule.FastScan?.HotPaths is not null)
-        {
-            foreach (var hotPath in rule.FastScan.HotPaths)
-            {
-                string? expandedHotPath = ExpandSafePath(hotPath);
-                if (string.IsNullOrWhiteSpace(expandedHotPath))
-                {
-                    continue;
-                }
-
-                string? parent = System.IO.Path.GetDirectoryName(expandedHotPath);
-                if (!string.IsNullOrWhiteSpace(parent))
-                {
-                    parentCandidates.Add(parent);
-                }
-            }
-        }
-
-        foreach (var parent in parentCandidates)
-        {
+            string parent = entry.Key;
+            int maxDepth = entry.Value;
             if (!localRoots.Any(root => parent.StartsWith(root, StringComparison.OrdinalIgnoreCase)))
             {
                 continue;
@@ -163,7 +146,7 @@ public sealed class AppPresenceDetector
             while (queue.Count > 0)
             {
                 var (currentPath, depth) = queue.Dequeue();
-                if (depth > 2)
+                if (depth > maxDepth)
                 {
                     continue;
                 }
@@ -191,7 +174,7 @@ public sealed class AppPresenceDetector
                         return true;
                     }
 
-                    if (depth < 2)
+                    if (depth < maxDepth)
                     {
                         queue.Enqueue((subDir, depth + 1));
                     }
@@ -211,13 +194,164 @@ public sealed class AppPresenceDetector
 
         try
         {
-            string expanded = Environment.ExpandEnvironmentVariables(rawPath.Replace('/', '\\'));
+            string normalized = rawPath.Replace('/', '\\');
+            string expanded = ExpandKnownFolderTokens(normalized);
+            expanded = Environment.ExpandEnvironmentVariables(expanded);
             return string.IsNullOrWhiteSpace(expanded) ? null : expanded;
         }
         catch (ArgumentException)
         {
             return null;
         }
+    }
+
+    private static string[] BuildPresenceKeywords(CleanupRule rule)
+    {
+        var keywords = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var keyword in rule.AppMatchKeywords ?? Array.Empty<string>())
+        {
+            AddKeyword(keywords, keyword);
+        }
+
+        if (rule.FastScan?.SearchHints is not null)
+        {
+            foreach (var searchHint in rule.FastScan.SearchHints)
+            {
+                foreach (var keyword in searchHint.DirectoryKeywords)
+                {
+                    AddKeyword(keywords, keyword);
+                }
+            }
+        }
+
+        if (rule.FastScan?.HeuristicSearchHints is not null)
+        {
+            foreach (var heuristicHint in rule.FastScan.HeuristicSearchHints)
+            {
+                foreach (var keyword in heuristicHint.AppTokens)
+                {
+                    AddKeyword(keywords, keyword);
+                }
+            }
+        }
+
+        return keywords.ToArray();
+    }
+
+    private static bool HasDirectFastScanPath(CleanupRule rule, out string? evidence)
+    {
+        evidence = null;
+
+        if (rule.FastScan?.HotPaths is null)
+        {
+            return false;
+        }
+
+        foreach (var hotPath in rule.FastScan.HotPaths)
+        {
+            string? expandedHotPath = ExpandSafePath(hotPath);
+            if (string.IsNullOrWhiteSpace(expandedHotPath) || !DirectoryExistsSafe(expandedHotPath))
+            {
+                continue;
+            }
+
+            evidence = expandedHotPath;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static void AddFastScanParents(CleanupRule rule, IDictionary<string, int> parentCandidates)
+    {
+        if (rule.FastScan?.SearchHints is not null)
+        {
+            foreach (var searchHint in rule.FastScan.SearchHints)
+            {
+                AddParentPath(parentCandidates, searchHint.Parent, searchHint.MaxDepth);
+            }
+        }
+
+        if (rule.FastScan?.HeuristicSearchHints is not null)
+        {
+            foreach (var heuristicHint in rule.FastScan.HeuristicSearchHints)
+            {
+                AddParentPath(parentCandidates, heuristicHint.Parent, heuristicHint.MaxDepth);
+            }
+        }
+
+        if (rule.FastScan?.HotPaths is not null)
+        {
+            foreach (var hotPath in rule.FastScan.HotPaths)
+            {
+                string? expandedHotPath = ExpandSafePath(hotPath);
+                if (string.IsNullOrWhiteSpace(expandedHotPath))
+                {
+                    continue;
+                }
+
+                string? parent = Path.GetDirectoryName(expandedHotPath);
+                if (!string.IsNullOrWhiteSpace(parent))
+                {
+                    AddParentCandidate(parentCandidates, parent, 2);
+                }
+            }
+        }
+    }
+
+    private static void AddParentPath(IDictionary<string, int> parentCandidates, string? rawPath, int maxDepth)
+    {
+        string? parent = ExpandSafePath(rawPath ?? string.Empty);
+        if (!string.IsNullOrWhiteSpace(parent))
+        {
+            AddParentCandidate(parentCandidates, parent, maxDepth);
+        }
+    }
+
+    private static void AddParentCandidate(IDictionary<string, int> parentCandidates, string parent, int maxDepth)
+    {
+        int normalizedDepth = Math.Max(1, Math.Min(maxDepth, 4));
+        if (parentCandidates.TryGetValue(parent, out int existingDepth))
+        {
+            parentCandidates[parent] = Math.Max(existingDepth, normalizedDepth);
+            return;
+        }
+
+        parentCandidates[parent] = normalizedDepth;
+    }
+
+    private static void AddKeyword(ISet<string> keywords, string? rawKeyword)
+    {
+        if (string.IsNullOrWhiteSpace(rawKeyword))
+        {
+            return;
+        }
+
+        string keyword = rawKeyword.Trim();
+        if (keyword.Length < 3)
+        {
+            return;
+        }
+
+        keywords.Add(keyword);
+    }
+
+    private static string ExpandKnownFolderTokens(string path)
+    {
+        return path
+            .Replace(
+                "%LOCALAPPDATA%",
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                StringComparison.OrdinalIgnoreCase)
+            .Replace(
+                "%APPDATA%",
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                StringComparison.OrdinalIgnoreCase)
+            .Replace(
+                "%PROGRAMDATA%",
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool DirectoryExistsSafe(string path)

@@ -1,43 +1,183 @@
 {
   "AppName": "Quark",
   "AppMatchKeywords": [
-    "夸克",
     "Quark",
-    "QuarkCloud"
+    "夸克"
   ],
   "Description": "夸克缓存实验性清理规则",
   "DefaultAction": "DeleteToRecycleBin",
   "ResidualFingerprints": [
     {
       "Parent": "%APPDATA%",
-      "PathKeywords": ["quark-cloud-drive", "pdf-cache", "pdf-viewer"],
-      "MaxDepth": 4
+      "PathKeywords": [
+        "quark-cloud-drive",
+        "pdf-cache",
+        "pdf-viewer"
+      ],
+      "MaxDepth": 4,
+      "MinSizeBytes": 20971520
     }
   ],
   "FastScan": {
-    "HotPaths": [
-      "%LOCALAPPDATA%\\Quark",
-      "%PROGRAMDATA%\\Quark\\videoCache"
+    "HotPaths": [],
+    "HeuristicSearchHints": [
+      {
+        "Parent": "%LOCALAPPDATA%",
+        "AppTokens": [
+          "quark",
+          "quark-cloud",
+          "quark-cloud-drive",
+          "pdf-viewer",
+          "pdf-cache"
+        ],
+        "CacheTokens": [
+          "cache",
+          "db",
+          "download",
+          "videocache",
+          "logs"
+        ],
+        "FileMarkersAny": [
+          "quark",
+          "quark-cloud",
+          "cache",
+          "db"
+        ],
+        "MaxDepth": 3,
+        "ScoreThreshold": 5,
+        "MinCandidateBytes": 20971520
+      },
+      {
+        "Parent": "%APPDATA%",
+        "AppTokens": [
+          "quark",
+          "quark-cloud",
+          "quark-cloud-drive",
+          "pdf-viewer",
+          "pdf-cache"
+        ],
+        "CacheTokens": [
+          "cache",
+          "db",
+          "download",
+          "videocache",
+          "logs"
+        ],
+        "FileMarkersAny": [
+          "quark",
+          "quark-cloud",
+          "cache",
+          "db"
+        ],
+        "MaxDepth": 3,
+        "ScoreThreshold": 5,
+        "MinCandidateBytes": 20971520
+      },
+      {
+        "Parent": "%PROGRAMDATA%",
+        "AppTokens": [
+          "quark",
+          "quark-cloud",
+          "quark-cloud-drive",
+          "pdf-viewer",
+          "pdf-cache"
+        ],
+        "CacheTokens": [
+          "cache",
+          "db",
+          "download",
+          "videocache",
+          "logs"
+        ],
+        "FileMarkersAny": [
+          "quark",
+          "quark-cloud",
+          "cache",
+          "db"
+        ],
+        "MaxDepth": 3,
+        "ScoreThreshold": 5,
+        "MinCandidateBytes": 20971520
+      }
     ],
     "SearchHints": [
       {
         "Parent": "%LOCALAPPDATA%",
-        "DirectoryKeywords": ["Quark", "QuarkCloud"],
-        "ChildMarkersAny": ["Cache", "db", "Download", "videoCache", "Logs"],
-        "FileMarkersAny": ["quark", "quark-cloud", "cache", "db"],
+        "DirectoryKeywords": [
+          "quark",
+          "quark-cloud",
+          "quark-cloud-drive",
+          "pdf-viewer",
+          "pdf-cache"
+        ],
+        "ChildMarkersAny": [
+          "cache",
+          "db",
+          "download",
+          "videocache",
+          "logs"
+        ],
+        "FileMarkersAny": [
+          "quark",
+          "quark-cloud",
+          "cache",
+          "db"
+        ],
+        "MaxDepth": 3,
+        "MinCandidateBytes": 20971520
+      },
+      {
+        "Parent": "%APPDATA%",
+        "DirectoryKeywords": [
+          "quark",
+          "quark-cloud",
+          "quark-cloud-drive",
+          "pdf-viewer",
+          "pdf-cache"
+        ],
+        "ChildMarkersAny": [
+          "cache",
+          "db",
+          "download",
+          "videocache",
+          "logs"
+        ],
+        "FileMarkersAny": [
+          "quark",
+          "quark-cloud",
+          "cache",
+          "db"
+        ],
         "MaxDepth": 3,
         "MinCandidateBytes": 20971520
       },
       {
         "Parent": "%PROGRAMDATA%",
-        "DirectoryKeywords": ["Quark"],
-        "ChildMarkersAny": ["videoCache", "Cache"],
-        "FileMarkersAny": ["quark"],
-        "MaxDepth": 2,
+        "DirectoryKeywords": [
+          "quark",
+          "quark-cloud",
+          "quark-cloud-drive",
+          "pdf-viewer",
+          "pdf-cache"
+        ],
+        "ChildMarkersAny": [
+          "cache",
+          "db",
+          "download",
+          "videocache",
+          "logs"
+        ],
+        "FileMarkersAny": [
+          "quark",
+          "quark-cloud",
+          "cache",
+          "db"
+        ],
+        "MaxDepth": 3,
         "MinCandidateBytes": 20971520
       }
     ],
-    "MaxDepth": 2,
+    "MaxDepth": 3,
     "MinSizeThreshold": 20971520,
     "Category": "BrowserCache",
     "IsExperimental": true

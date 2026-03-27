@@ -1,3 +1,4 @@
+﻿using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using CDriveMaster.Core.Interfaces;
@@ -179,6 +180,247 @@ public sealed class GenericRuleProviderTests
         finally
         {
             Environment.SetEnvironmentVariable("CDRIVEMASTER_TEST_TEMP", null);
+        }
+    }
+
+    [Fact]
+    public async Task ProbeAsync_WithHeuristicHint_ShouldReachDeepMatchThroughOneUnmatchedLevel()
+    {
+        using var sandbox = new TempSandbox("generic-provider-heuristic-deep");
+        string heuristicRoot = sandbox.CreateDirectory("Roaming");
+        _ = sandbox.CreateDirectory("Roaming", "ByteDance", "JianyingPro", "cache");
+        _ = sandbox.CreateFile(Path.Combine("Roaming", "ByteDance", "JianyingPro", "cache", "model.bin"), new string('x', 4096));
+
+        Environment.SetEnvironmentVariable("CDM_HEURISTIC_PARENT", heuristicRoot);
+        try
+        {
+            var rule = new CleanupRule
+            {
+                AppName = "Jianying",
+                Description = "Heuristic deep rule",
+                DefaultAction = CleanupAction.DeleteToRecycleBin,
+                Targets =
+                {
+                    new TargetRule { BaseFolder = "%CDM_HEURISTIC_PARENT%", Kind = "MediaCache", RiskLevel = RiskLevel.SafeWithPreview }
+                },
+                FastScan = new FastScanHint
+                {
+                    Category = "MediaCache",
+                    MinSizeThreshold = 1,
+                    IsExperimental = true,
+                    HeuristicSearchHints = new[]
+                    {
+                        new HeuristicSearchHint
+                        {
+                            Parent = "%CDM_HEURISTIC_PARENT%",
+                            AppTokens = new[] { "jianying", "jianyingpro", "capcut" },
+                            CacheTokens = new[] { "cache" },
+                            FileMarkersAny = new[] { "model" },
+                            MaxDepth = 3,
+                            ScoreThreshold = 5,
+                            MinCandidateBytes = 1
+                        }
+                    }
+                }
+            };
+
+            var provider = new GenericRuleProvider(
+                rule,
+                new StubAppDetector(new DetectionResult(true, string.Empty, "FallbackDetector", "test")),
+                new BucketBuilder());
+
+            var finding = await provider.ProbeAsync(rule, CancellationToken.None);
+
+            finding.Should().NotBeNull();
+            finding!.PrimaryPath.Should().Contain("JianyingPro");
+            finding.Trace.VerifiedDirectories.Should().NotBeEmpty();
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("CDM_HEURISTIC_PARENT", null);
+        }
+    }
+
+    [Fact]
+    public async Task ProbeAsync_WithManyHeuristicCandidates_ShouldCapTraceCollections()
+    {
+        using var sandbox = new TempSandbox("generic-provider-trace-cap");
+        string heuristicRoot = sandbox.CreateDirectory("Candidates");
+        for (int i = 0; i < 260; i++)
+        {
+            _ = sandbox.CreateDirectory("Candidates", $"Dir_{i:D3}");
+        }
+
+        Environment.SetEnvironmentVariable("CDM_TRACE_PARENT", heuristicRoot);
+        try
+        {
+            var rule = new CleanupRule
+            {
+                AppName = "Quark",
+                Description = "Trace cap rule",
+                DefaultAction = CleanupAction.DeleteToRecycleBin,
+                Targets =
+                {
+                    new TargetRule { BaseFolder = "%CDM_TRACE_PARENT%", Kind = "BrowserCache", RiskLevel = RiskLevel.SafeWithPreview }
+                },
+                FastScan = new FastScanHint
+                {
+                    Category = "BrowserCache",
+                    MinSizeThreshold = 1,
+                    IsExperimental = true,
+                    HeuristicSearchHints = new[]
+                    {
+                        new HeuristicSearchHint
+                        {
+                            Parent = "%CDM_TRACE_PARENT%",
+                            AppTokens = new[] { "quark" },
+                            CacheTokens = new[] { "cache" },
+                            FileMarkersAny = Array.Empty<string>(),
+                            MaxDepth = 2,
+                            ScoreThreshold = 5,
+                            MinCandidateBytes = 1
+                        }
+                    }
+                }
+            };
+
+            var provider = new GenericRuleProvider(
+                rule,
+                new StubAppDetector(new DetectionResult(true, string.Empty, "FallbackDetector", "test")),
+                new BucketBuilder());
+
+            var finding = await provider.ProbeAsync(rule, CancellationToken.None);
+
+            finding.Should().NotBeNull();
+            finding!.Trace.CandidateDirectories.Count.Should().BeLessOrEqualTo(201);
+            finding.Trace.RejectReasons.Count.Should().BeLessOrEqualTo(201);
+            finding.Trace.CandidateDirectories.Should().Contain("……更多记录已省略");
+            finding.Trace.RejectReasons.Should().Contain("……更多记录已省略");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("CDM_TRACE_PARENT", null);
+        }
+    }
+
+    [Fact]
+    public async Task ProbeAsync_WithLargeHeuristicCandidate_ShouldReturnApproximateSizeQuickly()
+    {
+        using var sandbox = new TempSandbox("generic-provider-large-heuristic");
+        string cacheDir = sandbox.CreateDirectory("Roaming", "Quark", "quark-cloud-drive", "cache");
+        string largeFile = Path.Combine(cacheDir, "video-cache.bin");
+        await using (var stream = File.Create(largeFile))
+        {
+            stream.SetLength(160L * 1024L * 1024L);
+        }
+
+        Environment.SetEnvironmentVariable("CDM_LARGE_HEURISTIC_PARENT", sandbox.Combine("Roaming"));
+        try
+        {
+            var rule = new CleanupRule
+            {
+                AppName = "Quark",
+                Description = "Large heuristic rule",
+                DefaultAction = CleanupAction.DeleteToRecycleBin,
+                Targets =
+                {
+                    new TargetRule { BaseFolder = "%CDM_LARGE_HEURISTIC_PARENT%", Kind = "BrowserCache", RiskLevel = RiskLevel.SafeWithPreview }
+                },
+                FastScan = new FastScanHint
+                {
+                    Category = "BrowserCache",
+                    MinSizeThreshold = 20L * 1024L * 1024L,
+                    IsExperimental = true,
+                    HeuristicSearchHints = new[]
+                    {
+                        new HeuristicSearchHint
+                        {
+                            Parent = "%CDM_LARGE_HEURISTIC_PARENT%",
+                            AppTokens = new[] { "quark", "quark-cloud-drive" },
+                            CacheTokens = new[] { "cache" },
+                            FileMarkersAny = new[] { "video-cache" },
+                            MaxDepth = 3,
+                            ScoreThreshold = 5,
+                            MinCandidateBytes = 1
+                        }
+                    }
+                }
+            };
+
+            var provider = new GenericRuleProvider(
+                rule,
+                new StubAppDetector(new DetectionResult(true, string.Empty, "FallbackDetector", "test")),
+                new BucketBuilder());
+
+            var finding = await provider.ProbeAsync(rule, CancellationToken.None);
+
+            finding.Should().NotBeNull();
+            finding!.IsHotspot.Should().BeTrue();
+            finding.IsExactSize.Should().BeFalse();
+            finding.DisplaySize.Should().StartWith("> ");
+            finding.PrimaryPath.Should().Contain("quark-cloud-drive");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("CDM_LARGE_HEURISTIC_PARENT", null);
+        }
+    }
+
+    [Fact]
+    public async Task ProbeAsync_WithDirectTargetSeed_ShouldFindDeepCacheEvenWhenParentDepthIsShallow()
+    {
+        using var sandbox = new TempSandbox("generic-provider-seeded-target");
+        string parentRoot = sandbox.CreateDirectory("LocalAppData");
+        string deepCache = sandbox.CreateDirectory("LocalAppData", "JianyingPro", "User Data", "Cache");
+        _ = sandbox.CreateFile(Path.Combine("LocalAppData", "JianyingPro", "User Data", "Cache", "model.bin"), new string('x', 4096));
+
+        Environment.SetEnvironmentVariable("CDM_SEED_PARENT", parentRoot);
+        try
+        {
+            var rule = new CleanupRule
+            {
+                AppName = "Jianying",
+                Description = "Seeded target rule",
+                DefaultAction = CleanupAction.DeleteToRecycleBin,
+                Targets =
+                {
+                    new TargetRule { BaseFolder = "%CDM_SEED_PARENT%\\JianyingPro\\User Data\\Cache", Kind = "MediaCache", RiskLevel = RiskLevel.SafeWithPreview }
+                },
+                FastScan = new FastScanHint
+                {
+                    Category = "MediaCache",
+                    MinSizeThreshold = 1,
+                    IsExperimental = true,
+                    HeuristicSearchHints = new[]
+                    {
+                        new HeuristicSearchHint
+                        {
+                            Parent = "%CDM_SEED_PARENT%",
+                            AppTokens = new[] { "jianyingpro" },
+                            CacheTokens = new[] { "cache" },
+                            FileMarkersAny = new[] { "model" },
+                            MaxDepth = 1,
+                            ScoreThreshold = 3,
+                            MinCandidateBytes = 1
+                        }
+                    }
+                }
+            };
+
+            var provider = new GenericRuleProvider(
+                rule,
+                new StubAppDetector(new DetectionResult(true, string.Empty, "FallbackDetector", "test")),
+                new BucketBuilder());
+
+            var finding = await provider.ProbeAsync(rule, CancellationToken.None);
+
+            finding.Should().NotBeNull();
+            finding!.PrimaryPath.Should().Be(deepCache);
+            finding.IsHotspot.Should().BeTrue();
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("CDM_SEED_PARENT", null);
         }
     }
 }

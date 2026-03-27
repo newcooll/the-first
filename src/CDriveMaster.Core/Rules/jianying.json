@@ -5,7 +5,6 @@
     "JianyingPro",
     "CapCut",
     "剪映",
-    "剪映专业版",
     "ByteDance"
   ],
   "Description": "剪映缓存实验性清理规则",
@@ -13,33 +12,129 @@
   "ResidualFingerprints": [
     {
       "Parent": "%LOCALAPPDATA%",
-      "PathKeywords": ["ComponentStore", "onnxruntime_gpu", "JianyingPro", "CapCut"],
-      "MaxDepth": 5
+      "PathKeywords": [
+        "componentstore",
+        "onnxruntime",
+        "jianyingpro",
+        "capcut"
+      ],
+      "MaxDepth": 5,
+      "MinSizeBytes": 20971520
     }
   ],
   "FastScan": {
-    "HotPaths": [
-      "%LOCALAPPDATA%\\JianyingPro\\User Data\\Cache",
-      "%LOCALAPPDATA%\\JianyingPro\\Drafts"
-    ],
-    "SearchHints": [
+    "HotPaths": [],
+    "HeuristicSearchHints": [
       {
         "Parent": "%LOCALAPPDATA%",
-        "DirectoryKeywords": ["Jianying", "CapCut"],
-        "ChildMarkersAny": ["User Data", "Cache", "Projects", "Drafts", "Logs"],
-        "FileMarkersAny": ["draft", "cache", "temp", "preview"],
-        "MaxDepth": 2,
+        "AppTokens": [
+          "jianying",
+          "jianyingpro",
+          "capcut",
+          "componentstore",
+          "onnxruntime"
+        ],
+        "CacheTokens": [
+          "userdata",
+          "cache",
+          "projects",
+          "draft",
+          "logs"
+        ],
+        "FileMarkersAny": [
+          "draft",
+          "cache",
+          "temp",
+          "preview",
+          "model"
+        ],
+        "MaxDepth": 3,
+        "ScoreThreshold": 5,
         "MinCandidateBytes": 20971520
       },
       {
         "Parent": "%APPDATA%",
-        "DirectoryKeywords": ["Jianying", "CapCut"],
-        "ChildMarkersAny": ["User Data", "Cache"],
-        "MaxDepth": 2,
+        "AppTokens": [
+          "jianying",
+          "jianyingpro",
+          "capcut",
+          "componentstore",
+          "onnxruntime"
+        ],
+        "CacheTokens": [
+          "userdata",
+          "cache",
+          "projects",
+          "draft",
+          "logs"
+        ],
+        "FileMarkersAny": [
+          "draft",
+          "cache",
+          "temp",
+          "preview",
+          "model"
+        ],
+        "MaxDepth": 3,
+        "ScoreThreshold": 5,
         "MinCandidateBytes": 20971520
       }
     ],
-    "MaxDepth": 2,
+    "SearchHints": [
+      {
+        "Parent": "%LOCALAPPDATA%",
+        "DirectoryKeywords": [
+          "jianying",
+          "jianyingpro",
+          "capcut",
+          "componentstore",
+          "onnxruntime"
+        ],
+        "ChildMarkersAny": [
+          "userdata",
+          "cache",
+          "projects",
+          "draft",
+          "logs"
+        ],
+        "FileMarkersAny": [
+          "draft",
+          "cache",
+          "temp",
+          "preview",
+          "model"
+        ],
+        "MaxDepth": 3,
+        "MinCandidateBytes": 20971520
+      },
+      {
+        "Parent": "%APPDATA%",
+        "DirectoryKeywords": [
+          "jianying",
+          "jianyingpro",
+          "capcut",
+          "componentstore",
+          "onnxruntime"
+        ],
+        "ChildMarkersAny": [
+          "userdata",
+          "cache",
+          "projects",
+          "draft",
+          "logs"
+        ],
+        "FileMarkersAny": [
+          "draft",
+          "cache",
+          "temp",
+          "preview",
+          "model"
+        ],
+        "MaxDepth": 3,
+        "MinCandidateBytes": 20971520
+      }
+    ],
+    "MaxDepth": 3,
     "MinSizeThreshold": 20971520,
     "Category": "MediaCache",
     "IsExperimental": true

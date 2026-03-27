@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -14,6 +14,8 @@ namespace CDriveMaster.Core.Providers;
 
 public class GenericRuleProvider : ICleanupProvider
 {
+    private const int MaxTraceEntries = 200;
+    private const long HeuristicSizeProbeFloorBytes = 128L * 1024L * 1024L;
     private static readonly SemaphoreSlim _probeSemaphore = new(2, 2);
     private static readonly EnumerationOptions _fastEnumOptions = new()
     {
@@ -105,6 +107,14 @@ public class GenericRuleProvider : ICleanupProvider
         if (rule.FastScan is null)
         {
             return null;
+        }
+
+        bool useHeuristicPipeline =
+            rule.FastScan.IsExperimental
+            || rule.FastScan.HeuristicSearchHints is { Length: > 0 };
+        if (useHeuristicPipeline)
+        {
+            return await ProbeHotspotCoreAsync(rule, ct);
         }
 
         await _probeSemaphore.WaitAsync(ct);
@@ -335,7 +345,7 @@ public class GenericRuleProvider : ICleanupProvider
                                 score += 3;
                             }
 
-                            if (score >= thresholdScore)
+                            if (score > 0)
                             {
                                 if (targetDirectories.Add(subDir))
                                 {
@@ -349,14 +359,21 @@ public class GenericRuleProvider : ICleanupProvider
                                     firstHitPath = subDir;
                                 }
 
-                                // Stop exploring matched branch to avoid duplicate nested hotspots.
-                                continue;
+                                if (score < thresholdScore)
+                                {
+                                    rejectReasons.Add($"{subDir} -> 评分 {score} 未达阈值 {thresholdScore}，按弱命中保留");
+                                }
+                            }
+                            else
+                            {
+                                rejectedDirectories.Add(subDir);
+                                rejectReasons.Add($"{subDir} -> 评分 {score} 未达阈值 {thresholdScore}");
                             }
 
-                            rejectedDirectories.Add(subDir);
-                            rejectReasons.Add($"{subDir} -> 评分 {score} 未达阈值 {thresholdScore}");
-
-                            pending.Enqueue((subDir, currentDepth + 1));
+                            if (currentDepth + 1 < boundedDepth)
+                            {
+                                pending.Enqueue((subDir, currentDepth + 1));
+                            }
                         }
                     }
                 }
@@ -387,7 +404,9 @@ public class GenericRuleProvider : ICleanupProvider
                 };
             }
 
-            foreach (var targetDirectory in targetDirectories)
+            var selectedTargetDirectories = PreferLeafDirectories(targetDirectories);
+
+            foreach (var targetDirectory in selectedTargetDirectories)
             {
                 ct.ThrowIfCancellationRequested();
                 var pending = new Queue<(string path, int depth)>();
@@ -516,7 +535,7 @@ public class GenericRuleProvider : ICleanupProvider
                 ? $"> {SizeFormatter.Format(threshold)}"
                 : SizeFormatter.Format(totalBytes);
 
-            string? primaryPath = ResolveRealPrimaryPath(targetDirectories, hint.HotPaths);
+            string? primaryPath = ResolveRealPrimaryPath(selectedTargetDirectories, hint.HotPaths);
 
             var trace = new ProbeTraceInfo(
                 0,
@@ -530,7 +549,7 @@ public class GenericRuleProvider : ICleanupProvider
                 rule,
                 hint.Category,
                 matchedDirectorySizes,
-                targetDirectories,
+                selectedTargetDirectories,
                 totalBytes,
                 primaryPath);
 
@@ -558,6 +577,846 @@ public class GenericRuleProvider : ICleanupProvider
         {
             _probeSemaphore.Release();
         }
+    }
+
+    private async Task<FastScanFinding?> ProbeHotspotCoreAsync(CleanupRule rule, CancellationToken ct)
+    {
+        if (rule.FastScan is null)
+        {
+            return null;
+        }
+
+        await _probeSemaphore.WaitAsync(ct);
+        try
+        {
+            var hint = rule.FastScan;
+            var heuristicHints = BuildHeuristicHints(rule, hint);
+            bool hasHeuristicHints = heuristicHints.Count > 0;
+
+            if (hint.HotPaths.Count == 0 && !hasHeuristicHints)
+            {
+                return null;
+            }
+
+            long hotspotThreshold = hint.MinSizeThreshold > 0
+                ? hint.MinSizeThreshold
+                : 20L * 1024L * 1024L;
+            var candidateDirectories = new List<string>();
+            var verifiedDirectories = new List<string>();
+            var rejectedDirectories = new List<string>();
+            var rejectReasons = new List<string>();
+            var matchHistory = new List<string>();
+            var matchedDirectorySizes = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+            var allHeuristicCandidates = new List<HeuristicCandidate>();
+            var hotPathDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var hotPath in hint.HotPaths.Where(path => !string.IsNullOrWhiteSpace(path)))
+            {
+                ct.ThrowIfCancellationRequested();
+
+                string? expandedPath = ExpandSafePath(hotPath);
+                if (string.IsNullOrWhiteSpace(expandedPath) || !DirectoryExistsSafe(expandedPath))
+                {
+                    continue;
+                }
+
+                hotPathDirectories.Add(expandedPath);
+                AddTraceEntry(verifiedDirectories, expandedPath);
+                AddTraceEntry(matchHistory, $"直接路径命中 {expandedPath}");
+            }
+
+            foreach (var heuristicHint in heuristicHints)
+            {
+                ct.ThrowIfCancellationRequested();
+                if (string.IsNullOrWhiteSpace(heuristicHint.Parent))
+                {
+                    continue;
+                }
+
+                string? expandedParent = ExpandSafePath(heuristicHint.Parent);
+                if (string.IsNullOrWhiteSpace(expandedParent) || !DirectoryExistsSafe(expandedParent))
+                {
+                    continue;
+                }
+
+                var seedDirectories = BuildPreferredHeuristicSeedDirectories(rule, heuristicHint, expandedParent);
+                var discovery = seedDirectories.Count > 0
+                    ? await DiscoverHeuristicCandidatesFromSeedsAsync(
+                        seedDirectories,
+                        heuristicHint,
+                        expandedParent,
+                        hotspotThreshold,
+                        ct)
+                    : await DiscoverHeuristicCandidatesAsync(
+                        expandedParent,
+                        heuristicHint,
+                        hotspotThreshold,
+                        ct);
+                AddTraceEntries(candidateDirectories, discovery.CandidateDirectories);
+                AddTraceEntries(verifiedDirectories, discovery.VerifiedDirectories);
+                AddTraceEntries(rejectedDirectories, discovery.RejectedDirectories);
+                AddTraceEntries(rejectReasons, discovery.RejectReasons);
+                AddTraceEntries(matchHistory, discovery.MatchHistory);
+                allHeuristicCandidates.AddRange(discovery.Candidates);
+            }
+
+            HeuristicCandidate? selectedCandidate = SelectPreferredCandidate(allHeuristicCandidates);
+            string? primaryPath = null;
+            string sourcePath = string.Empty;
+            long totalBytes = 0;
+            bool isExactSize = true;
+
+            if (selectedCandidate is not null)
+            {
+                primaryPath = selectedCandidate.Path;
+                sourcePath = selectedCandidate.Path;
+                totalBytes = selectedCandidate.SizeBytes;
+                isExactSize = selectedCandidate.IsExactSize;
+                matchedDirectorySizes[selectedCandidate.Path] = selectedCandidate.SizeBytes;
+
+                if (!verifiedDirectories.Contains(selectedCandidate.Path, StringComparer.OrdinalIgnoreCase))
+                {
+                    AddTraceEntry(verifiedDirectories, selectedCandidate.Path);
+                }
+
+                AddTraceEntry(
+                    matchHistory,
+                    $"叶子优先选择 {selectedCandidate.Path} (得分 {selectedCandidate.Score}，体积 {SizeFormatter.Format(selectedCandidate.SizeBytes)})");
+
+                foreach (var ancestor in allHeuristicCandidates.Where(candidate =>
+                             !string.Equals(candidate.Path, selectedCandidate.Path, StringComparison.OrdinalIgnoreCase)
+                             && IsAncestorPath(candidate.Path, selectedCandidate.Path)))
+                {
+                    if (!rejectedDirectories.Contains(ancestor.Path, StringComparer.OrdinalIgnoreCase))
+                    {
+                        AddTraceEntry(rejectedDirectories, ancestor.Path);
+                    }
+
+                    AddTraceEntry(
+                        rejectReasons,
+                        $"{ancestor.Path} -> 已由更深层叶子目录 {selectedCandidate.Path} 代表，避免父目录重复打包");
+                }
+            }
+            else if (hotPathDirectories.Count > 0)
+            {
+                var existingHotPaths = hotPathDirectories
+                    .Where(DirectoryExistsSafe)
+                    .ToList();
+                if (existingHotPaths.Count > 0)
+                {
+                    sourcePath = existingHotPaths[0];
+                    primaryPath = ResolveRealPrimaryPath(existingHotPaths, hint.HotPaths);
+
+                    foreach (var hotPath in existingHotPaths)
+                    {
+                        long sizeBytes = await CalculateDirectorySizeAsync(hotPath, ct);
+                        matchedDirectorySizes[hotPath] = sizeBytes;
+                        totalBytes += sizeBytes;
+                    }
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(primaryPath) && totalBytes == 0)
+            {
+                AddTraceEntry(rejectReasons, "未找到可验证目录");
+                var emptyTrace = new ProbeTraceInfo(
+                    0,
+                    new List<string>(),
+                    candidateDirectories,
+                    verifiedDirectories,
+                    rejectedDirectories,
+                    rejectReasons,
+                    matchHistory,
+                    "未发现可用候选路径");
+
+                return new FastScanFinding
+                {
+                    AppId = rule.AppName,
+                    SizeBytes = 0,
+                    Category = hint.Category,
+                    PrimaryPath = null,
+                    SourcePath = string.Empty,
+                    IsExactSize = true,
+                    DisplaySize = SizeFormatter.Format(0),
+                    IsExperimental = hint.IsExperimental,
+                    Trace = emptyTrace,
+                    IsHotspot = false,
+                    IsHeuristicMatch = hasHeuristicHints
+                };
+            }
+
+            int selectedScore = selectedCandidate?.Score ?? 0;
+            int scoreThreshold = selectedCandidate?.ScoreThreshold ?? 1;
+            long minCandidateBytes = selectedCandidate?.MinCandidateBytes ?? hotspotThreshold;
+            bool meetsScoreThreshold = selectedCandidate is null || selectedScore >= scoreThreshold;
+            bool meetsMinCandidateBytes = totalBytes >= minCandidateBytes;
+            bool meetsHotspotThreshold = totalBytes >= hotspotThreshold;
+            bool isHotspot = meetsHotspotThreshold && meetsMinCandidateBytes && meetsScoreThreshold;
+
+            if (!isHotspot)
+            {
+                if (selectedCandidate is not null && !meetsScoreThreshold)
+                {
+                    AddTraceEntry(
+                        rejectReasons,
+                        $"{selectedCandidate.Path} -> 得分仅 {selectedScore} 分，未达 {scoreThreshold} 分阈值");
+                }
+
+                if (selectedCandidate is not null && !meetsMinCandidateBytes)
+                {
+                    AddTraceEntry(
+                        rejectReasons,
+                        $"{selectedCandidate.Path} -> 总体积 {SizeFormatter.Format(totalBytes)}，未达 {SizeFormatter.Format(minCandidateBytes)} 候选阈值");
+                }
+
+                if (!meetsHotspotThreshold && !string.IsNullOrWhiteSpace(primaryPath))
+                {
+                    AddTraceEntry(
+                        rejectReasons,
+                        $"{primaryPath} -> 总体积 {SizeFormatter.Format(totalBytes)}，未达 {SizeFormatter.Format(hotspotThreshold)} 热点阈值");
+                }
+            }
+
+            string finalDecision = isHotspot
+                ? $"已达热点阈值，定位到叶子目录 {primaryPath}"
+                : rejectReasons.LastOrDefault(reason => !string.IsNullOrWhiteSpace(reason))
+                    ?? "检测到可疑路径，但未达热点阈值";
+
+            string displaySize = isExactSize
+                ? SizeFormatter.Format(totalBytes)
+                : $"> {SizeFormatter.Format(totalBytes)}";
+
+            var trace = new ProbeTraceInfo(
+                0,
+                new List<string>(),
+                candidateDirectories,
+                verifiedDirectories,
+                rejectedDirectories,
+                rejectReasons,
+                matchHistory,
+                finalDecision);
+
+            CleanupBucket? originalBucket = isHotspot
+                ? BuildProbeOriginalBucket(
+                    rule,
+                    hint.Category,
+                    matchedDirectorySizes,
+                    matchedDirectorySizes.Keys,
+                    totalBytes,
+                    primaryPath)
+                : null;
+
+            return new FastScanFinding
+            {
+                AppId = rule.AppName,
+                SizeBytes = totalBytes,
+                Category = hint.Category,
+                PrimaryPath = primaryPath,
+                SourcePath = sourcePath,
+                IsExactSize = isExactSize,
+                DisplaySize = displaySize,
+                IsExperimental = hint.IsExperimental,
+                Trace = trace,
+                IsHotspot = isHotspot,
+                IsHeuristicMatch = hasHeuristicHints,
+                OriginalBucket = originalBucket
+            };
+        }
+        finally
+        {
+            _probeSemaphore.Release();
+        }
+    }
+
+    private sealed record HeuristicCandidate(
+        string Path,
+        int Depth,
+        int Score,
+        int ScoreThreshold,
+        long SizeBytes,
+        long MinCandidateBytes,
+        bool IsExactSize,
+        List<string> MatchHistory);
+
+    private sealed record HeuristicDiscoveryResult(
+        List<HeuristicCandidate> Candidates,
+        List<string> CandidateDirectories,
+        List<string> VerifiedDirectories,
+        List<string> RejectedDirectories,
+        List<string> RejectReasons,
+        List<string> MatchHistory);
+
+    private sealed record HeuristicSeedDirectory(
+        string Path,
+        int Depth);
+
+    private async Task<HeuristicDiscoveryResult> DiscoverHeuristicCandidatesFromSeedsAsync(
+        IReadOnlyList<HeuristicSeedDirectory> seedDirectories,
+        HeuristicSearchHint heuristicHint,
+        string expandedParent,
+        long hotspotThreshold,
+        CancellationToken ct)
+    {
+        var aggregate = CreateEmptyHeuristicDiscoveryResult();
+
+        foreach (var seedDirectory in seedDirectories)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var discovery = await DiscoverHeuristicCandidatesAsync(
+                seedDirectory.Path,
+                heuristicHint,
+                hotspotThreshold,
+                ct,
+                seedDirectory.Depth,
+                evaluateCurrentPath: true);
+
+            AddHeuristicDiscoveryResult(aggregate, discovery);
+        }
+
+        return aggregate;
+    }
+
+    private async Task<HeuristicDiscoveryResult> DiscoverHeuristicCandidatesAsync(
+        string expandedParent,
+        HeuristicSearchHint heuristicHint,
+        long hotspotThreshold,
+        CancellationToken ct,
+        int startDepth = 0,
+        bool evaluateCurrentPath = false)
+    {
+        var result = CreateEmptyHeuristicDiscoveryResult();
+        int boundedDepth = Math.Max(1, heuristicHint.MaxDepth);
+        var pending = new Queue<(string Path, int CurrentDepth, bool EvaluateCurrentPath)>();
+        pending.Enqueue((expandedParent, startDepth, evaluateCurrentPath));
+        var stopwatch = Stopwatch.StartNew();
+
+        while (pending.Count > 0)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            if (stopwatch.ElapsedMilliseconds > 50)
+            {
+                await Task.Yield();
+                stopwatch.Restart();
+            }
+
+            var (currentPath, currentDepth, shouldEvaluateCurrentPath) = pending.Dequeue();
+            if (shouldEvaluateCurrentPath)
+            {
+                await EvaluateAndCollectHeuristicCandidateAsync(
+                    currentPath,
+                    currentDepth,
+                    heuristicHint,
+                    hotspotThreshold,
+                    result,
+                    ct);
+            }
+
+            if (currentDepth >= boundedDepth)
+            {
+                continue;
+            }
+
+            IEnumerable<string> subDirs;
+            try
+            {
+                subDirs = Directory.EnumerateDirectories(currentPath, "*", _fastEnumOptions);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                continue;
+            }
+            catch (PathTooLongException)
+            {
+                continue;
+            }
+            catch (IOException)
+            {
+                continue;
+            }
+
+            foreach (var subDir in subDirs)
+            {
+                ct.ThrowIfCancellationRequested();
+                AddTraceEntry(result.CandidateDirectories, subDir);
+
+                await EvaluateAndCollectHeuristicCandidateAsync(
+                    subDir,
+                    currentDepth + 1,
+                    heuristicHint,
+                    hotspotThreshold,
+                    result,
+                    ct);
+
+                // Keep descending even through neutral intermediate folders so we can still
+                // reach deeper cache leaves such as "...\\Default\\Cache" or "...\\pdf-cache".
+                if (currentDepth + 1 < boundedDepth)
+                {
+                    pending.Enqueue((subDir, currentDepth + 1, false));
+                }
+            }
+        }
+
+        return result;
+    }
+
+    private async Task<HeuristicCandidate> EvaluateHeuristicCandidateAsync(
+        string candidatePath,
+        int depth,
+        HeuristicSearchHint hint,
+        long hotspotThreshold,
+        CancellationToken ct)
+    {
+        int score = 0;
+        var history = new List<string>();
+        string directoryName = Path.GetFileName(candidatePath);
+        var pathSegments = candidatePath
+            .Split(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar }, StringSplitOptions.RemoveEmptyEntries);
+
+        string[] appTokens = hint.AppTokens
+            .Where(token => !string.IsNullOrWhiteSpace(token))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        string[] cacheTokens = hint.CacheTokens
+            .Where(token => !string.IsNullOrWhiteSpace(token))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        string[] fileMarkers = hint.FileMarkersAny
+            .Where(token => !string.IsNullOrWhiteSpace(token))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        string? matchedPathSegment = pathSegments.FirstOrDefault(segment =>
+            appTokens.Any(token => segment.Contains(token, StringComparison.OrdinalIgnoreCase)));
+        if (!string.IsNullOrWhiteSpace(matchedPathSegment))
+        {
+            score += 2;
+            history.Add($"路径分段命中 {matchedPathSegment} (+2) @ {candidatePath}");
+        }
+
+        string? matchedDirectoryToken = appTokens.FirstOrDefault(token =>
+            directoryName.Contains(token, StringComparison.OrdinalIgnoreCase));
+        if (!string.IsNullOrWhiteSpace(matchedDirectoryToken))
+        {
+            score += 2;
+            history.Add($"目录名命中 {matchedDirectoryToken} (+2) @ {candidatePath}");
+        }
+
+        try
+        {
+            foreach (var childDir in Directory.EnumerateDirectories(candidatePath, "*", _fastEnumOptions))
+            {
+                ct.ThrowIfCancellationRequested();
+                string childName = Path.GetFileName(childDir);
+                string? matchedStructureToken = cacheTokens.FirstOrDefault(token =>
+                    childName.Contains(token, StringComparison.OrdinalIgnoreCase));
+                if (string.IsNullOrWhiteSpace(matchedStructureToken))
+                {
+                    continue;
+                }
+
+                score += 2;
+                history.Add($"结构特征命中 {matchedStructureToken} (+2) @ {candidatePath}");
+                break;
+            }
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+        catch (PathTooLongException)
+        {
+        }
+        catch (IOException)
+        {
+        }
+
+        try
+        {
+            foreach (var filePath in Directory.EnumerateFiles(candidatePath, "*", _fastEnumOptions))
+            {
+                ct.ThrowIfCancellationRequested();
+                string fileName = Path.GetFileName(filePath);
+                string? matchedFileToken = appTokens.FirstOrDefault(token =>
+                        fileName.Contains(token, StringComparison.OrdinalIgnoreCase))
+                    ?? fileMarkers.FirstOrDefault(marker =>
+                        fileName.Contains(marker, StringComparison.OrdinalIgnoreCase));
+
+                if (string.IsNullOrWhiteSpace(matchedFileToken))
+                {
+                    continue;
+                }
+
+                score += 3;
+                history.Add($"文件名命中 {matchedFileToken} (+3) @ {candidatePath}");
+                break;
+            }
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+        catch (PathTooLongException)
+        {
+        }
+        catch (IOException)
+        {
+        }
+
+        if (score <= 0)
+        {
+            if (history.Count == 0)
+            {
+                history.Add($"未命中任何启发式信号 @ {candidatePath}");
+            }
+
+            return new HeuristicCandidate(
+                candidatePath,
+                depth,
+                score,
+                Math.Max(1, hint.ScoreThreshold),
+                0,
+                hint.MinCandidateBytes > 0 ? hint.MinCandidateBytes : 20L * 1024L * 1024L,
+                true,
+                history);
+        }
+
+        long sizeProbeLimit = Math.Max(
+            Math.Max(hint.MinCandidateBytes, hotspotThreshold),
+            HeuristicSizeProbeFloorBytes);
+        var sizeProbe = await CalculateDirectorySizeProbeAsync(candidatePath, sizeProbeLimit, ct);
+        long sizeBytes = sizeProbe.SizeBytes;
+        if (sizeBytes > 100L * 1024L * 1024L)
+        {
+            score += 3;
+            history.Add($"体积超过 100MB (+3) @ {candidatePath}");
+        }
+
+        if (sizeProbe.IsExactSize && sizeBytes > 500L * 1024L * 1024L)
+        {
+            score += 2;
+            history.Add($"体积超过 500MB 额外加权 (+2) @ {candidatePath}");
+        }
+        else if (!sizeProbe.IsExactSize)
+        {
+            history.Add($"快速估算已达到 {SizeFormatter.Format(sizeBytes)}，跳过剩余体积递归 @ {candidatePath}");
+        }
+
+        return new HeuristicCandidate(
+            candidatePath,
+            depth,
+            score,
+            Math.Max(1, hint.ScoreThreshold),
+            sizeBytes,
+            hint.MinCandidateBytes > 0 ? hint.MinCandidateBytes : 20L * 1024L * 1024L,
+            sizeProbe.IsExactSize,
+            history);
+    }
+
+    private static HeuristicCandidate? SelectPreferredCandidate(IReadOnlyList<HeuristicCandidate> candidates)
+    {
+        if (candidates.Count == 0)
+        {
+            return null;
+        }
+
+        var selected = candidates
+            .OrderByDescending(candidate => candidate.Score >= candidate.ScoreThreshold)
+            .ThenByDescending(candidate => candidate.SizeBytes >= candidate.MinCandidateBytes)
+            .ThenByDescending(candidate => candidate.Score)
+            .ThenByDescending(candidate => candidate.SizeBytes)
+            .ThenByDescending(candidate => candidate.Depth)
+            .First();
+
+        while (true)
+        {
+            var descendant = candidates
+                .Where(candidate =>
+                    !string.Equals(candidate.Path, selected.Path, StringComparison.OrdinalIgnoreCase)
+                    && IsAncestorPath(selected.Path, candidate.Path)
+                    && candidate.Score > 0
+                    && (selected.SizeBytes == 0 || candidate.SizeBytes >= (long)(selected.SizeBytes * 0.6d)))
+                .OrderByDescending(candidate => candidate.Depth)
+                .ThenByDescending(candidate => candidate.Score >= candidate.ScoreThreshold)
+                .ThenByDescending(candidate => candidate.Score)
+                .ThenByDescending(candidate => candidate.SizeBytes)
+                .FirstOrDefault();
+
+            if (descendant is null)
+            {
+                break;
+            }
+
+            selected = descendant;
+        }
+
+        return selected;
+    }
+
+    private static IReadOnlyList<string> PreferLeafDirectories(IEnumerable<string> directories)
+    {
+        var distinctDirectories = directories
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return distinctDirectories
+            .Where(path => !distinctDirectories.Any(otherPath =>
+                !string.Equals(path, otherPath, StringComparison.OrdinalIgnoreCase)
+                && IsAncestorPath(path, otherPath)))
+            .ToList();
+    }
+
+    private static HeuristicDiscoveryResult CreateEmptyHeuristicDiscoveryResult()
+    {
+        return new HeuristicDiscoveryResult(
+            new List<HeuristicCandidate>(),
+            new List<string>(),
+            new List<string>(),
+            new List<string>(),
+            new List<string>(),
+            new List<string>());
+    }
+
+    private static void AddHeuristicDiscoveryResult(
+        HeuristicDiscoveryResult target,
+        HeuristicDiscoveryResult source)
+    {
+        target.Candidates.AddRange(source.Candidates);
+        AddTraceEntries(target.CandidateDirectories, source.CandidateDirectories);
+        AddTraceEntries(target.VerifiedDirectories, source.VerifiedDirectories);
+        AddTraceEntries(target.RejectedDirectories, source.RejectedDirectories);
+        AddTraceEntries(target.RejectReasons, source.RejectReasons);
+        AddTraceEntries(target.MatchHistory, source.MatchHistory);
+    }
+
+    private async Task EvaluateAndCollectHeuristicCandidateAsync(
+        string candidatePath,
+        int depth,
+        HeuristicSearchHint heuristicHint,
+        long hotspotThreshold,
+        HeuristicDiscoveryResult result,
+        CancellationToken ct)
+    {
+        var candidate = await EvaluateHeuristicCandidateAsync(
+            candidatePath,
+            depth,
+            heuristicHint,
+            hotspotThreshold,
+            ct);
+
+        AddTraceEntries(result.MatchHistory, candidate.MatchHistory);
+        if (candidate.Score > 0)
+        {
+            result.Candidates.Add(candidate);
+            AddTraceEntry(result.VerifiedDirectories, candidatePath);
+        }
+        else
+        {
+            AddTraceEntry(result.RejectedDirectories, candidatePath);
+            AddTraceEntry(result.RejectReasons, $"{candidatePath} -> 未命中核心 Token、文件标记或结构特征");
+        }
+    }
+
+    private IReadOnlyList<HeuristicSeedDirectory> BuildPreferredHeuristicSeedDirectories(
+        CleanupRule rule,
+        HeuristicSearchHint heuristicHint,
+        string expandedParent)
+    {
+        var seedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        AddRuleBasedSeedPaths(seedPaths, rule, expandedParent);
+
+        if (seedPaths.Count == 0)
+        {
+            AddTopLevelKeywordSeedPaths(seedPaths, rule, heuristicHint, expandedParent);
+        }
+
+        return seedPaths
+            .Select(path => new HeuristicSeedDirectory(path, GetRelativeDepth(expandedParent, path)))
+            .OrderBy(seed => seed.Depth)
+            .ThenBy(seed => seed.Path, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private void AddRuleBasedSeedPaths(
+        ISet<string> seedPaths,
+        CleanupRule rule,
+        string expandedParent)
+    {
+        foreach (var target in rule.Targets)
+        {
+            AddSeedPathIfRelevant(seedPaths, ExpandBaseFolder(target.BaseFolder), expandedParent);
+        }
+
+        if (rule.FastScan?.HotPaths is null)
+        {
+            return;
+        }
+
+        foreach (var hotPath in rule.FastScan.HotPaths)
+        {
+            string? expandedHotPath = ExpandSafePath(hotPath);
+            if (!string.IsNullOrWhiteSpace(expandedHotPath))
+            {
+                AddSeedPathIfRelevant(seedPaths, expandedHotPath, expandedParent);
+            }
+        }
+    }
+
+    private void AddTopLevelKeywordSeedPaths(
+        ISet<string> seedPaths,
+        CleanupRule rule,
+        HeuristicSearchHint heuristicHint,
+        string expandedParent)
+    {
+        var keywords = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var token in heuristicHint.AppTokens)
+        {
+            AddKeyword(keywords, token);
+        }
+
+        foreach (var keyword in rule.AppMatchKeywords ?? Array.Empty<string>())
+        {
+            AddKeyword(keywords, keyword);
+        }
+
+        if (keywords.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var subDir in SafeEnumerateDirectories(expandedParent))
+        {
+            string leafName = Path.GetFileName(subDir);
+            if (keywords.Any(keyword => leafName.Contains(keyword, StringComparison.OrdinalIgnoreCase)))
+            {
+                seedPaths.Add(subDir);
+            }
+        }
+    }
+
+    private void AddSeedPathIfRelevant(
+        ISet<string> seedPaths,
+        string candidatePath,
+        string expandedParent)
+    {
+        if (string.IsNullOrWhiteSpace(candidatePath))
+        {
+            return;
+        }
+
+        string? existingPath = FindExistingSeedPathUnderParent(expandedParent, candidatePath);
+        if (!string.IsNullOrWhiteSpace(existingPath))
+        {
+            seedPaths.Add(existingPath);
+        }
+    }
+
+    private static string? FindExistingSeedPathUnderParent(string expandedParent, string candidatePath)
+    {
+        if (string.IsNullOrWhiteSpace(expandedParent) || string.IsNullOrWhiteSpace(candidatePath))
+        {
+            return null;
+        }
+
+        string normalizedParent = expandedParent.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        string? current = candidatePath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+        while (!string.IsNullOrWhiteSpace(current)
+            && current.StartsWith(normalizedParent, StringComparison.OrdinalIgnoreCase))
+        {
+            if (DirectoryExistsSafe(current))
+            {
+                return current;
+            }
+
+            if (string.Equals(current, normalizedParent, StringComparison.OrdinalIgnoreCase))
+            {
+                break;
+            }
+
+            current = Path.GetDirectoryName(current);
+        }
+
+        return null;
+    }
+
+    private static int GetRelativeDepth(string rootPath, string candidatePath)
+    {
+        string normalizedRoot = rootPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        string normalizedCandidate = candidatePath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (!normalizedCandidate.StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            return 0;
+        }
+
+        string relativePath = normalizedCandidate[normalizedRoot.Length..]
+            .TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (string.IsNullOrWhiteSpace(relativePath))
+        {
+            return 0;
+        }
+
+        return relativePath
+            .Split(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar }, StringSplitOptions.RemoveEmptyEntries)
+            .Length;
+    }
+
+    private static void AddKeyword(ISet<string> keywords, string? rawValue)
+    {
+        if (string.IsNullOrWhiteSpace(rawValue))
+        {
+            return;
+        }
+
+        string value = rawValue.Trim();
+        if (value.Length < 3)
+        {
+            return;
+        }
+
+        keywords.Add(value);
+    }
+
+    private static bool IsAncestorPath(string ancestorPath, string descendantPath)
+    {
+        if (string.IsNullOrWhiteSpace(ancestorPath) || string.IsNullOrWhiteSpace(descendantPath))
+        {
+            return false;
+        }
+
+        string normalizedAncestor = ancestorPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        string normalizedDescendant = descendantPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return normalizedDescendant.StartsWith(
+            normalizedAncestor + Path.DirectorySeparatorChar,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void AddTraceEntries(List<string> target, IEnumerable<string> values)
+    {
+        foreach (var value in values)
+        {
+            AddTraceEntry(target, value);
+        }
+    }
+
+    private static void AddTraceEntry(List<string> target, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return;
+        }
+
+        if (target.Count >= MaxTraceEntries)
+        {
+            if (target.Count == MaxTraceEntries)
+            {
+                target.Add("……更多记录已省略");
+            }
+
+            return;
+        }
+
+        target.Add(value);
     }
 
     private static List<HeuristicSearchHint> BuildHeuristicHints(CleanupRule rule, FastScanHint hint)
@@ -588,10 +1447,19 @@ public class GenericRuleProvider : ICleanupProvider
             fallbackHints.Add(new HeuristicSearchHint
             {
                 Parent = searchHint.Parent,
-                AppTokens = appTokens,
+                AppTokens = searchHint.DirectoryKeywords
+                    .Concat(appTokens)
+                    .Where(token => !string.IsNullOrWhiteSpace(token))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray(),
                 CacheTokens = cacheTokens,
+                FileMarkersAny = searchHint.FileMarkersAny
+                    .Where(token => !string.IsNullOrWhiteSpace(token))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray(),
                 MaxDepth = searchHint.MaxDepth,
-                ScoreThreshold = 5
+                ScoreThreshold = 5,
+                MinCandidateBytes = searchHint.MinCandidateBytes
             });
         }
 
@@ -803,7 +1671,9 @@ public class GenericRuleProvider : ICleanupProvider
 
         try
         {
-            string expanded = Environment.ExpandEnvironmentVariables(rawPath.Replace('/', '\\'));
+            string normalized = rawPath.Replace('/', '\\');
+            string expanded = ExpandKnownFolderTokens(normalized);
+            expanded = Environment.ExpandEnvironmentVariables(expanded);
             return string.IsNullOrWhiteSpace(expanded) ? null : expanded;
         }
         catch (ArgumentException)
@@ -895,10 +1765,20 @@ public class GenericRuleProvider : ICleanupProvider
 
     private static async Task<long> CalculateDirectorySizeAsync(string rootPath, CancellationToken ct)
     {
+        var result = await CalculateDirectorySizeProbeAsync(rootPath, long.MaxValue, ct);
+        return result.SizeBytes;
+    }
+
+    private static async Task<(long SizeBytes, bool IsExactSize)> CalculateDirectorySizeProbeAsync(
+        string rootPath,
+        long stopAfterBytes,
+        CancellationToken ct)
+    {
         long totalBytes = 0;
         var pending = new Queue<string>();
         pending.Enqueue(rootPath);
         var stopwatch = Stopwatch.StartNew();
+        bool isExactSize = true;
 
         while (pending.Count > 0)
         {
@@ -919,6 +1799,11 @@ public class GenericRuleProvider : ICleanupProvider
                     try
                     {
                         totalBytes += new FileInfo(file).Length;
+                        if (totalBytes >= stopAfterBytes)
+                        {
+                            isExactSize = false;
+                            return (totalBytes, isExactSize);
+                        }
                     }
                     catch (UnauthorizedAccessException)
                     {
@@ -947,7 +1832,7 @@ public class GenericRuleProvider : ICleanupProvider
             }
         }
 
-        return totalBytes;
+        return (totalBytes, isExactSize);
     }
 
     private static string ExpandBaseFolder(string baseFolder)
@@ -957,7 +1842,25 @@ public class GenericRuleProvider : ICleanupProvider
             return string.Empty;
         }
 
-        return Environment.ExpandEnvironmentVariables(baseFolder);
+        string normalized = baseFolder.Replace('/', '\\');
+        return Environment.ExpandEnvironmentVariables(ExpandKnownFolderTokens(normalized));
+    }
+
+    private static string ExpandKnownFolderTokens(string path)
+    {
+        return path
+            .Replace(
+                "%LOCALAPPDATA%",
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                StringComparison.OrdinalIgnoreCase)
+            .Replace(
+                "%APPDATA%",
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                StringComparison.OrdinalIgnoreCase)
+            .Replace(
+                "%PROGRAMDATA%",
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                StringComparison.OrdinalIgnoreCase);
     }
 
     private void TryBuildAndAddBucket(List<CleanupBucket> buckets, string targetPath, TargetRule target)

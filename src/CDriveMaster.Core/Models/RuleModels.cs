@@ -37,9 +37,13 @@ public class HeuristicSearchHint
 
     public string[] CacheTokens { get; init; } = Array.Empty<string>();
 
+    public string[] FileMarkersAny { get; init; } = Array.Empty<string>();
+
     public int MaxDepth { get; init; } = 3;
 
     public int ScoreThreshold { get; init; } = 5;
+
+    public long MinCandidateBytes { get; init; } = 52428800;
 }
 
 public sealed record SearchHint
@@ -83,7 +87,29 @@ public record ProbeTraceInfo(
     List<string> CandidateDirectories,
     List<string> VerifiedDirectories,
     List<string> RejectedDirectories,
-    List<string> RejectReasons);
+    List<string> RejectReasons,
+    List<string> MatchHistory,
+    string FinalDecision)
+{
+    public ProbeTraceInfo(
+        int evidenceScore,
+        List<string> matchedEvidences,
+        List<string> candidateDirectories,
+        List<string> verifiedDirectories,
+        List<string> rejectedDirectories,
+        List<string> rejectReasons)
+        : this(
+            evidenceScore,
+            matchedEvidences,
+            candidateDirectories,
+            verifiedDirectories,
+            rejectedDirectories,
+            rejectReasons,
+            new List<string>(),
+            string.Empty)
+    {
+    }
+}
 
 public sealed record FastScanFinding
 {
@@ -113,7 +139,9 @@ public sealed record FastScanFinding
         new List<string>(),
         new List<string>(),
         new List<string>(),
-        new List<string>());
+        new List<string>(),
+        new List<string>(),
+        string.Empty);
 
     public bool IsHotspot { get; init; }
 
