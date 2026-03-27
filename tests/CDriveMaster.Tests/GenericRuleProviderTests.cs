@@ -423,4 +423,113 @@ public sealed class GenericRuleProviderTests
             Environment.SetEnvironmentVariable("CDM_SEED_PARENT", null);
         }
     }
+
+    [Fact]
+    public async Task ProbeSeedOnlyAsync_WithoutRuleSeeds_ShouldSkipTopLevelKeywordFallback()
+    {
+        using var sandbox = new TempSandbox("generic-provider-seed-only");
+        string parentRoot = sandbox.CreateDirectory("LocalAppData");
+        _ = sandbox.CreateDirectory("LocalAppData", "Youku");
+        string cacheRoot = sandbox.CreateDirectory("LocalAppData", "Youku", "User Data", "Default", "Cache");
+        _ = sandbox.CreateFile(Path.Combine("LocalAppData", "Youku", "User Data", "Default", "Cache", "video.bin"), new string('x', 4096));
+
+        Environment.SetEnvironmentVariable("CDM_SEED_ONLY_PARENT", parentRoot);
+        try
+        {
+            var rule = new CleanupRule
+            {
+                AppName = "Youku",
+                Description = "Seed-only fallback rule",
+                DefaultAction = CleanupAction.DeleteToRecycleBin,
+                Targets =
+                {
+                    new TargetRule { BaseFolder = "%LOCALAPPDATA%\\MissingYoukuSeed\\Cache", Kind = "VideoCache", RiskLevel = RiskLevel.SafeWithPreview }
+                },
+                FastScan = new FastScanHint
+                {
+                    Category = "VideoCache",
+                    MinSizeThreshold = 1,
+                    IsExperimental = true,
+                    HeuristicSearchHints = new[]
+                    {
+                        new HeuristicSearchHint
+                        {
+                            Parent = "%CDM_SEED_ONLY_PARENT%",
+                            AppTokens = new[] { "youku" },
+                            CacheTokens = new[] { "cache" },
+                            FileMarkersAny = new[] { "video" },
+                            MaxDepth = 4,
+                            ScoreThreshold = 3,
+                            MinCandidateBytes = 1
+                        }
+                    }
+                }
+            };
+
+            var provider = new GenericRuleProvider(
+                rule,
+                new StubAppDetector(new DetectionResult(true, string.Empty, "FallbackDetector", "test")),
+                new BucketBuilder());
+
+            var fullFinding = await provider.ProbeAsync(rule, CancellationToken.None);
+            var seedOnlyFinding = await provider.ProbeSeedOnlyAsync(rule, CancellationToken.None);
+
+            fullFinding.Should().NotBeNull();
+            fullFinding!.PrimaryPath.Should().Be(cacheRoot);
+            seedOnlyFinding.Should().NotBeNull();
+            seedOnlyFinding!.PrimaryPath.Should().BeNull();
+            seedOnlyFinding.IsHotspot.Should().BeFalse();
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("CDM_SEED_ONLY_PARENT", null);
+        }
+    }
+
+    [Fact]
+    public async Task ScanResiduesAsync_ShouldOnlyCountSafeCleanupEntries()
+    {
+        using var sandbox = new TempSandbox("generic-provider-residual-safe-size");
+        string residualRoot = sandbox.CreateDirectory("Residuals", "Xunlei", "Cache");
+        _ = sandbox.CreateFile(Path.Combine("Residuals", "Xunlei", "Cache", "video.bin"), new string('x', 4096));
+        _ = sandbox.CreateFile(Path.Combine("Residuals", "Xunlei", "Cache", "core.dll"), new string('y', 4096));
+
+        Environment.SetEnvironmentVariable("CDM_RESIDUAL_PARENT", sandbox.Combine("Residuals"));
+        try
+        {
+            var rule = new CleanupRule
+            {
+                AppName = "Xunlei",
+                Description = "Residual safe size rule",
+                DefaultAction = CleanupAction.DeleteToRecycleBin,
+                ResidualFingerprints = new List<ResidualFingerprint>
+                {
+                    new()
+                    {
+                        Parent = "%CDM_RESIDUAL_PARENT%",
+                        PathKeywords = new List<string> { "cache" },
+                        MaxDepth = 3,
+                        MinSizeBytes = 1
+                    }
+                }
+            };
+
+            var provider = new GenericRuleProvider(
+                rule,
+                new StubAppDetector(new DetectionResult(true, string.Empty, "FallbackDetector", "test")),
+                new BucketBuilder());
+
+            var findings = await provider.ScanResiduesAsync(rule, CancellationToken.None);
+
+            findings.Should().ContainSingle();
+            findings[0].TotalSizeBytes.Should().Be(4096);
+            findings[0].OriginalBucket.Should().NotBeNull();
+            findings[0].OriginalBucket!.Entries.Should().ContainSingle();
+            findings[0].OriginalBucket!.Entries[0].Path.Should().EndWith("video.bin");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("CDM_RESIDUAL_PARENT", null);
+        }
+    }
 }

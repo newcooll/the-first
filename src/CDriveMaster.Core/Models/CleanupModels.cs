@@ -56,7 +56,8 @@ public sealed record CleanupBucket(
     CleanupAction SuggestedAction,
     string Description,
     long EstimatedSizeBytes,
-    IReadOnlyList<CleanupEntry> Entries
+    IReadOnlyList<CleanupEntry> Entries,
+    IReadOnlyList<string>? AllowedRoots = null
 );
 
 public sealed record BucketResult(

@@ -55,6 +55,49 @@
                     <TextBlock Margin="0,4,0,0"
                                Text="{Binding StatsText}"
                                Foreground="#FF667085" />
+                    <Border Margin="0,8,0,0"
+                            Padding="10,8"
+                            Background="#FFF0FDF9"
+                            BorderBrush="#FF99F6E4"
+                            BorderThickness="1"
+                            CornerRadius="8">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsCleanupVisualVisible}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <StackPanel>
+                            <TextBlock Text="{Binding CleanupStageText, StringFormat={}清理阶段: {0}}"
+                                       Foreground="#FF115E59"
+                                       FontWeight="SemiBold" />
+                            <TextBlock Margin="0,3,0,0"
+                                       Text="{Binding CleanupSummaryText}"
+                                       TextTrimming="CharacterEllipsis"
+                                       Foreground="#FF0F766E" />
+                            <TextBlock Margin="0,2,0,0"
+                                       Text="{Binding CleanupBatchText}"
+                                       TextTrimming="CharacterEllipsis"
+                                       Foreground="#FF0F766E" />
+                            <ProgressBar Height="6"
+                                         Margin="0,6,0,0"
+                                         Value="{Binding ProgressValue}"
+                                         IsIndeterminate="{Binding IsIndeterminate}" />
+                            <TextBlock Margin="0,4,0,0"
+                                       Text="{Binding CleanupProgressText}"
+                                       TextTrimming="CharacterEllipsis"
+                                       Foreground="#FF134E4A"
+                                       FontWeight="SemiBold" />
+                            <TextBlock Margin="0,2,0,0"
+                                       Text="{Binding CleanupCurrentPathText}"
+                                       TextTrimming="CharacterEllipsis"
+                                       Foreground="#FF667085" />
+                        </StackPanel>
+                    </Border>
                 </StackPanel>
             </DockPanel>
         </Border>
@@ -243,15 +286,29 @@
                                                 Padding="10,4"
                                                 HorizontalAlignment="Left"
                                                 Command="{Binding DataContext.CleanHotspotCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                                CommandParameter="{Binding .}"
-                                                IsEnabled="{Binding IsHotspot}">
+                                                CommandParameter="{Binding .}">
                                             <Button.Style>
                                                 <Style TargetType="Button">
+                                                    <Setter Property="IsEnabled" Value="False" />
                                                     <Setter Property="ToolTip" Value="常规缓存，安全可清理" />
                                                     <Setter Property="BorderBrush" Value="#FFDC2626" />
                                                     <Setter Property="Foreground" Value="#FFB91C1C" />
                                                     <Setter Property="Background" Value="#FFFEE2E2" />
                                                     <Style.Triggers>
+                                                        <MultiDataTrigger>
+                                                            <MultiDataTrigger.Conditions>
+                                                                <Condition Binding="{Binding IsHotspot}" Value="True" />
+                                                                <Condition Binding="{Binding OriginalBucket}" Value="{x:Null}" />
+                                                            </MultiDataTrigger.Conditions>
+                                                            <Setter Property="IsEnabled" Value="False" />
+                                                            <Setter Property="ToolTip" Value="当前仅定位到可疑缓存，但未生成安全清理清单" />
+                                                        </MultiDataTrigger>
+                                                        <DataTrigger Binding="{Binding IsHotspot}" Value="True">
+                                                            <Setter Property="IsEnabled" Value="True" />
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding OriginalBucket}" Value="{x:Null}">
+                                                            <Setter Property="IsEnabled" Value="False" />
+                                                        </DataTrigger>
                                                         <DataTrigger Binding="{Binding IsHeuristicMatch}" Value="True">
                                                             <Setter Property="ToolTip" Value="启发式深层缓存，清理需谨慎" />
                                                         </DataTrigger>
@@ -323,11 +380,16 @@
                                                 CommandParameter="{Binding .}">
                                             <Button.Style>
                                                 <Style TargetType="Button">
+                                                    <Setter Property="IsEnabled" Value="True" />
                                                     <Setter Property="ToolTip" Value="常规缓存，安全可清理" />
                                                     <Setter Property="BorderBrush" Value="#FFDC2626" />
                                                     <Setter Property="Foreground" Value="#FFB91C1C" />
                                                     <Setter Property="Background" Value="#FFFEE2E2" />
                                                     <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding OriginalBucket}" Value="{x:Null}">
+                                                            <Setter Property="IsEnabled" Value="False" />
+                                                            <Setter Property="ToolTip" Value="当前仅定位到可疑缓存，但未生成安全清理清单" />
+                                                        </DataTrigger>
                                                         <DataTrigger Binding="{Binding IsHeuristicMatch}" Value="True">
                                                             <Setter Property="ToolTip" Value="启发式深层缓存，清理需谨慎" />
                                                         </DataTrigger>
@@ -366,6 +428,15 @@
                             Height="32"
                             Margin="0,0,10,0"
                             Content="全盘深度扫描" />
+
+                    <Button Command="{Binding ScanAppDeepCommand}"
+                            Width="150"
+                            Height="32"
+                            Margin="0,0,10,0"
+                            Background="#FFF5F3FF"
+                            BorderBrush="#FFD6BBFB"
+                            Foreground="#FF6D28D9"
+                            Content="应用深度扫描" />
 
                     <Button Command="{Binding CancelScanCommand}"
                             Width="120"

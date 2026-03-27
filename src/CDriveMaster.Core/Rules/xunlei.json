@@ -1,0 +1,127 @@
+{
+  "AppName": "Xunlei",
+  "AppMatchKeywords": [
+    "Xunlei",
+    "Thunder",
+    "Thunder Network",
+    "迅雷"
+  ],
+  "Description": "Xunlei desktop cache cleanup rule with conservative cache-only boundaries.",
+  "DefaultAction": "DeleteToRecycleBin",
+  "ResidualFingerprints": [
+    {
+      "Parent": "%LOCALAPPDATA%",
+      "PathKeywords": [
+        "thunder network",
+        "xunlei",
+        "cache",
+        "gpucache"
+      ],
+      "MaxDepth": 5,
+      "MinSizeBytes": 20971520
+    }
+  ],
+  "FastScan": {
+    "HotPaths": [
+      "%LOCALAPPDATA%\\Thunder Network\\Thunder\\Profiles\\Default\\Cache",
+      "%LOCALAPPDATA%\\Thunder Network\\Thunder\\Profiles\\Default\\Code Cache",
+      "%LOCALAPPDATA%\\Thunder Network\\Thunder\\Profiles\\Default\\GPUCache",
+      "%LOCALAPPDATA%\\Thunder Network\\Thunder\\Cache"
+    ],
+    "HeuristicSearchHints": [
+      {
+        "Parent": "%LOCALAPPDATA%",
+        "AppTokens": [
+          "xunlei",
+          "thunder",
+          "thunder network"
+        ],
+        "CacheTokens": [
+          "cache",
+          "code cache",
+          "gpucache",
+          "temp"
+        ],
+        "FileMarkersAny": [
+          "xunlei",
+          "thunder",
+          "cache"
+        ],
+        "MaxDepth": 4,
+        "ScoreThreshold": 5,
+        "MinCandidateBytes": 20971520
+      },
+      {
+        "Parent": "%APPDATA%",
+        "AppTokens": [
+          "xunlei",
+          "thunder",
+          "thunder network"
+        ],
+        "CacheTokens": [
+          "cache",
+          "code cache",
+          "gpucache",
+          "temp"
+        ],
+        "FileMarkersAny": [
+          "xunlei",
+          "thunder",
+          "cache"
+        ],
+        "MaxDepth": 4,
+        "ScoreThreshold": 5,
+        "MinCandidateBytes": 20971520
+      }
+    ],
+    "SearchHints": [
+      {
+        "Parent": "%LOCALAPPDATA%",
+        "DirectoryKeywords": [
+          "xunlei",
+          "thunder",
+          "thunder network"
+        ],
+        "ChildMarkersAny": [
+          "cache",
+          "code cache",
+          "gpucache",
+          "temp"
+        ],
+        "FileMarkersAny": [
+          "xunlei",
+          "thunder",
+          "cache"
+        ],
+        "MaxDepth": 4,
+        "MinCandidateBytes": 20971520
+      }
+    ],
+    "MaxDepth": 4,
+    "MinSizeThreshold": 20971520,
+    "Category": "DownloadCache",
+    "IsExperimental": true
+  },
+  "Targets": [
+    {
+      "BaseFolder": "%LOCALAPPDATA%\\Thunder Network\\Thunder\\Profiles\\Default\\Cache",
+      "Kind": "DownloadCache",
+      "RiskLevel": "SafeWithPreview"
+    },
+    {
+      "BaseFolder": "%LOCALAPPDATA%\\Thunder Network\\Thunder\\Profiles\\Default\\Code Cache",
+      "Kind": "DownloadCache",
+      "RiskLevel": "SafeWithPreview"
+    },
+    {
+      "BaseFolder": "%LOCALAPPDATA%\\Thunder Network\\Thunder\\Profiles\\Default\\GPUCache",
+      "Kind": "DownloadCache",
+      "RiskLevel": "SafeWithPreview"
+    },
+    {
+      "BaseFolder": "%LOCALAPPDATA%\\Thunder Network\\Thunder\\Cache",
+      "Kind": "DownloadCache",
+      "RiskLevel": "SafeWithPreview"
+    }
+  ]
+}

@@ -7,7 +7,7 @@ namespace CDriveMaster.UI.Services;
 
 public sealed class NoOpPreviewDialogService : IPreviewDialogService
 {
-    public Task<IEnumerable<CleanupEntry>> ShowPreviewAsync(string title, IEnumerable<CleanupEntry> entries)
+    public Task<IEnumerable<CleanupEntry>> ShowPreviewAsync(string title, IEnumerable<CleanupEntry> entries, string? summary = null)
     {
         return Task.FromResult(Enumerable.Empty<CleanupEntry>());
     }

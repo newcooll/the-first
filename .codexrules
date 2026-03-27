@@ -1,0 +1,14 @@
+﻿# CDriveMaster Agent 核心工程宪法
+
+## 1. 绝对修改纪律 (Modification Axioms)
+- **禁止隐式重写**：修改现有方法时，**绝对禁止**省略、删除或简化原有的业务逻辑、边界条件检查、`try-catch` 和日志记录（如 `ProbeTraceInfo`）。
+- **增量插入原则**：新增逻辑必须以内联追加（Inline Append）的方式进行，严禁重构原有的核心 I/O 循环结构。
+- **编码不可侵犯**：修改任何 `.xaml` 或 `.cs` 文件，必须强制使用 `UTF-8 with BOM`。严禁导致中文乱码。
+
+## 2. WPF / MVVM 契约 (WPF Contracts)
+- **XAML 只读/追加原则**：修改 XAML 视图时，**绝对禁止**修改或删除现有的 `Command`、`CommandParameter` 绑定。只能追加新的 UI 元素或调整现有的 `Visibility`/`Opacity` 等视觉属性。
+- **禁止破坏数据上下文**：严禁在未修改 ViewModel 的情况下，凭空在 XAML 中捏造并绑定不存在的属性。
+
+## 3. 验证闭环 (Verification Loop)
+- 任何 C# 代码的修改，完成前必须自主调用终端运行 `dotnet build .\CDriveMaster.sln -v q`。
+- 如果包含 Error，必须自主读取错误并修复，直到 `0 Error` 才允许结束当前 Task。

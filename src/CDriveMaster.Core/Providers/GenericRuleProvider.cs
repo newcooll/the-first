@@ -17,6 +17,10 @@ public class GenericRuleProvider : ICleanupProvider
     private const int MaxTraceEntries = 200;
     private const long HeuristicSizeProbeFloorBytes = 128L * 1024L * 1024L;
     private static readonly SemaphoreSlim _probeSemaphore = new(2, 2);
+    private static readonly HashSet<string> _unsafeCleanupExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".dll", ".exe", ".sys", ".drv", ".ocx", ".cpl", ".scr", ".com", ".msi", ".msp"
+    };
     private static readonly EnumerationOptions _fastEnumOptions = new()
     {
         IgnoreInaccessible = true,
@@ -27,6 +31,12 @@ public class GenericRuleProvider : ICleanupProvider
     private readonly CleanupRule _rule;
     private readonly IAppDetector _detector;
     private readonly BucketBuilder _bucketBuilder;
+
+    private enum HotspotProbeMode
+    {
+        Full,
+        SeedOnly
+    }
 
     public GenericRuleProvider(CleanupRule rule, IAppDetector detector, BucketBuilder bucketBuilder)
     {
@@ -114,7 +124,7 @@ public class GenericRuleProvider : ICleanupProvider
             || rule.FastScan.HeuristicSearchHints is { Length: > 0 };
         if (useHeuristicPipeline)
         {
-            return await ProbeHotspotCoreAsync(rule, ct);
+            return await ProbeHotspotCoreAsync(rule, ct, HotspotProbeMode.Full);
         }
 
         await _probeSemaphore.WaitAsync(ct);
@@ -579,7 +589,10 @@ public class GenericRuleProvider : ICleanupProvider
         }
     }
 
-    private async Task<FastScanFinding?> ProbeHotspotCoreAsync(CleanupRule rule, CancellationToken ct)
+    private async Task<FastScanFinding?> ProbeHotspotCoreAsync(
+        CleanupRule rule,
+        CancellationToken ct,
+        HotspotProbeMode probeMode)
     {
         if (rule.FastScan is null)
         {
@@ -639,7 +652,11 @@ public class GenericRuleProvider : ICleanupProvider
                     continue;
                 }
 
-                var seedDirectories = BuildPreferredHeuristicSeedDirectories(rule, heuristicHint, expandedParent);
+                var seedDirectories = BuildPreferredHeuristicSeedDirectories(
+                    rule,
+                    heuristicHint,
+                    expandedParent,
+                    allowTopLevelKeywordFallback: probeMode == HotspotProbeMode.Full);
                 var discovery = seedDirectories.Count > 0
                     ? await DiscoverHeuristicCandidatesFromSeedsAsync(
                         seedDirectories,
@@ -647,11 +664,13 @@ public class GenericRuleProvider : ICleanupProvider
                         expandedParent,
                         hotspotThreshold,
                         ct)
-                    : await DiscoverHeuristicCandidatesAsync(
-                        expandedParent,
-                        heuristicHint,
-                        hotspotThreshold,
-                        ct);
+                    : probeMode == HotspotProbeMode.Full
+                        ? await DiscoverHeuristicCandidatesAsync(
+                            expandedParent,
+                            heuristicHint,
+                            hotspotThreshold,
+                            ct)
+                        : CreateEmptyHeuristicDiscoveryResult();
                 AddTraceEntries(candidateDirectories, discovery.CandidateDirectories);
                 AddTraceEntries(verifiedDirectories, discovery.VerifiedDirectories);
                 AddTraceEntries(rejectedDirectories, discovery.RejectedDirectories);
@@ -826,6 +845,24 @@ public class GenericRuleProvider : ICleanupProvider
         {
             _probeSemaphore.Release();
         }
+    }
+
+    public async Task<FastScanFinding?> ProbeSeedOnlyAsync(CleanupRule rule, CancellationToken ct)
+    {
+        if (rule.FastScan is null)
+        {
+            return null;
+        }
+
+        bool useHeuristicPipeline =
+            rule.FastScan.IsExperimental
+            || rule.FastScan.HeuristicSearchHints is { Length: > 0 };
+        if (!useHeuristicPipeline)
+        {
+            return await ProbeAsync(rule, ct);
+        }
+
+        return await ProbeHotspotCoreAsync(rule, ct, HotspotProbeMode.SeedOnly);
     }
 
     private sealed record HeuristicCandidate(
@@ -1220,12 +1257,13 @@ public class GenericRuleProvider : ICleanupProvider
     private IReadOnlyList<HeuristicSeedDirectory> BuildPreferredHeuristicSeedDirectories(
         CleanupRule rule,
         HeuristicSearchHint heuristicHint,
-        string expandedParent)
+        string expandedParent,
+        bool allowTopLevelKeywordFallback)
     {
         var seedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         AddRuleBasedSeedPaths(seedPaths, rule, expandedParent);
 
-        if (seedPaths.Count == 0)
+        if (allowTopLevelKeywordFallback && seedPaths.Count == 0)
         {
             AddTopLevelKeywordSeedPaths(seedPaths, rule, heuristicHint, expandedParent);
         }
@@ -1499,7 +1537,11 @@ public class GenericRuleProvider : ICleanupProvider
                 SuggestedAction: rule.DefaultAction,
                 Description: "Heuristic hotspot candidate",
                 EstimatedSizeBytes: matchedTotalBytes,
-                Entries: entries.AsReadOnly());
+                Entries: entries.AsReadOnly(),
+                AllowedRoots: entries
+                    .Select(entry => entry.Path)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray());
         }
 
         string? fallbackPath = primaryPath;
@@ -1529,7 +1571,8 @@ public class GenericRuleProvider : ICleanupProvider
             SuggestedAction: rule.DefaultAction,
             Description: "Probe hotspot candidate",
             EstimatedSizeBytes: Math.Max(0, totalBytes),
-            Entries: new List<CleanupEntry> { fallbackEntry }.AsReadOnly());
+            Entries: new List<CleanupEntry> { fallbackEntry }.AsReadOnly(),
+            AllowedRoots: new[] { fallbackPath });
     }
 
     public async Task<List<FastScanFinding>> ScanResiduesAsync(CleanupRule rule, CancellationToken ct)
@@ -1607,18 +1650,19 @@ public class GenericRuleProvider : ICleanupProvider
                     string leafName = new DirectoryInfo(subDir).Name;
                     if (keywordSet.Contains(leafName))
                     {
-                        long sizeBytes = await CalculateDirectorySizeAsync(subDir, ct);
-                        if (sizeBytes >= minSizeBytes)
+                        var cleanupEntries = CollectSafeCleanupEntries(subDir, "ResidualCache");
+                        long safeSizeBytes = cleanupEntries.Sum(entry => entry.SizeBytes);
+                        if (safeSizeBytes >= minSizeBytes)
                         {
                             findings.Add(new FastScanFinding
                             {
                                 AppId = rule.AppName,
-                                SizeBytes = sizeBytes,
+                                SizeBytes = safeSizeBytes,
                                 Category = "ResidualCache",
                                 PrimaryPath = subDir,
                                 SourcePath = subDir,
                                 IsExactSize = true,
-                                DisplaySize = SizeFormatter.Format(sizeBytes),
+                                DisplaySize = SizeFormatter.Format(safeSizeBytes),
                                 IsExperimental = rule.FastScan?.IsExperimental ?? false,
                                 Trace = new ProbeTraceInfo(
                                     0,
@@ -1629,24 +1673,21 @@ public class GenericRuleProvider : ICleanupProvider
                                     new List<string>()),
                                 IsHotspot = true,
                                 IsResidual = true,
-                                OriginalBucket = new CleanupBucket(
-                                    BucketId: $"residual:{rule.AppName}:{Guid.NewGuid():N}",
-                                    Category: "ResidualCache",
-                                    RootPath: subDir,
-                                    AppName: rule.AppName,
-                                    RiskLevel: RiskLevel.SafeWithPreview,
-                                    SuggestedAction: rule.DefaultAction,
-                                    Description: $"Residual hotspot - {new DirectoryInfo(subDir).Name}",
-                                    EstimatedSizeBytes: sizeBytes,
-                                    Entries: new List<CleanupEntry>
-                                    {
-                                        new CleanupEntry(
-                                            Path: subDir,
-                                            IsDirectory: true,
-                                            SizeBytes: sizeBytes,
-                                            LastWriteTimeUtc: DateTime.UtcNow,
-                                            Category: "ResidualCache")
-                                    }.AsReadOnly())
+                                OriginalBucket = cleanupEntries.Count == 0
+                                    ? null
+                                    : new CleanupBucket(
+                                        BucketId: $"residual:{rule.AppName}:{Guid.NewGuid():N}",
+                                        Category: "ResidualCache",
+                                        RootPath: subDir,
+                                        AppName: rule.AppName,
+                                        RiskLevel: RiskLevel.SafeWithPreview,
+                                        SuggestedAction: rule.DefaultAction,
+                                        Description: $"Residual hotspot - {new DirectoryInfo(subDir).Name}",
+                                        EstimatedSizeBytes: safeSizeBytes,
+                                        Entries: cleanupEntries,
+                                        AllowedRoots: cleanupEntries
+                                            .Select(entry => entry.Path)
+                                            .ToArray())
                             });
                         }
 
@@ -1660,6 +1701,103 @@ public class GenericRuleProvider : ICleanupProvider
         }
 
         return findings;
+    }
+
+    private static IReadOnlyList<CleanupEntry> CollectSafeCleanupEntries(string rootPath, string category)
+    {
+        var entries = new List<CleanupEntry>();
+        var pending = new Stack<string>();
+        pending.Push(rootPath);
+
+        while (pending.Count > 0)
+        {
+            string currentPath = pending.Pop();
+
+            IEnumerable<string> files;
+            try
+            {
+                files = Directory.EnumerateFiles(currentPath, "*", _fastEnumOptions);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                files = Array.Empty<string>();
+            }
+            catch (PathTooLongException)
+            {
+                files = Array.Empty<string>();
+            }
+            catch (IOException)
+            {
+                files = Array.Empty<string>();
+            }
+
+            foreach (var filePath in files)
+            {
+                if (!IsSafeCleanupFile(filePath))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    var fileInfo = new FileInfo(filePath);
+                    if (!fileInfo.Exists)
+                    {
+                        continue;
+                    }
+
+                    entries.Add(new CleanupEntry(
+                        Path: fileInfo.FullName,
+                        IsDirectory: false,
+                        SizeBytes: fileInfo.Length,
+                        LastWriteTimeUtc: fileInfo.LastWriteTimeUtc,
+                        Category: category));
+                }
+                catch (UnauthorizedAccessException)
+                {
+                }
+                catch (PathTooLongException)
+                {
+                }
+                catch (IOException)
+                {
+                }
+            }
+
+            IEnumerable<string> subDirs;
+            try
+            {
+                subDirs = Directory.EnumerateDirectories(currentPath, "*", _fastEnumOptions);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                subDirs = Array.Empty<string>();
+            }
+            catch (PathTooLongException)
+            {
+                subDirs = Array.Empty<string>();
+            }
+            catch (IOException)
+            {
+                subDirs = Array.Empty<string>();
+            }
+
+            foreach (var subDir in subDirs)
+            {
+                pending.Push(subDir);
+            }
+        }
+
+        return entries
+            .DistinctBy(entry => entry.Path, StringComparer.OrdinalIgnoreCase)
+            .ToList()
+            .AsReadOnly();
+    }
+
+    private static bool IsSafeCleanupFile(string filePath)
+    {
+        string extension = Path.GetExtension(filePath);
+        return string.IsNullOrWhiteSpace(extension) || !_unsafeCleanupExtensions.Contains(extension);
     }
 
     private static string? ExpandSafePath(string rawPath)

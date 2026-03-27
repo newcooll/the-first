@@ -1,0 +1,49 @@
+name: Build and Release CDriveMaster
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Restore dependencies
+        run: dotnet restore .\CDriveMaster.sln
+
+      - name: Publish WPF app
+        run: >
+          dotnet publish .\src\CDriveMaster.UI\CDriveMaster.UI.csproj
+          -c Release
+          -r win-x64
+          --self-contained true
+          /p:PublishSingleFile=true
+          /p:DebugType=None
+          /p:DebugSymbols=false
+          -o .\publish_output
+
+      - name: Compress package
+        shell: pwsh
+        run: Compress-Archive -Path .\publish_output\* -DestinationPath CDriveMaster-${{ github.ref_name }}-win-x64.zip -Force
+
+      - name: Create GitHub release and upload asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: CDriveMaster-${{ github.ref_name }}-win-x64.zip
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

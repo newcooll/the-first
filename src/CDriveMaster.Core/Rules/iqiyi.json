@@ -1,0 +1,134 @@
+{
+  "AppName": "iQIYI",
+  "AppMatchKeywords": [
+    "iQIYI",
+    "IQIYI",
+    "Qiyi",
+    "QYPlayer",
+    "爱奇艺"
+  ],
+  "Description": "iQIYI desktop cache cleanup rule with conservative cache-only boundaries.",
+  "DefaultAction": "DeleteToRecycleBin",
+  "ResidualFingerprints": [
+    {
+      "Parent": "%LOCALAPPDATA%",
+      "PathKeywords": [
+        "qiyi",
+        "iqiyi",
+        "qyplayer",
+        "cache"
+      ],
+      "MaxDepth": 5,
+      "MinSizeBytes": 20971520
+    }
+  ],
+  "FastScan": {
+    "HotPaths": [
+      "%LOCALAPPDATA%\\Qiyi\\QYPlayer\\Cache",
+      "%LOCALAPPDATA%\\Qiyi\\QYPlayer\\Code Cache",
+      "%LOCALAPPDATA%\\Qiyi\\QYPlayer\\GPUCache",
+      "%LOCALAPPDATA%\\Qiyi\\QYPlayer\\Temp"
+    ],
+    "HeuristicSearchHints": [
+      {
+        "Parent": "%LOCALAPPDATA%",
+        "AppTokens": [
+          "iqiyi",
+          "qiyi",
+          "qyplayer"
+        ],
+        "CacheTokens": [
+          "cache",
+          "code cache",
+          "gpucache",
+          "temp",
+          "offline"
+        ],
+        "FileMarkersAny": [
+          "iqiyi",
+          "qiyi",
+          "cache",
+          "video"
+        ],
+        "MaxDepth": 4,
+        "ScoreThreshold": 5,
+        "MinCandidateBytes": 20971520
+      },
+      {
+        "Parent": "%APPDATA%",
+        "AppTokens": [
+          "iqiyi",
+          "qiyi",
+          "qyplayer"
+        ],
+        "CacheTokens": [
+          "cache",
+          "code cache",
+          "gpucache",
+          "temp",
+          "offline"
+        ],
+        "FileMarkersAny": [
+          "iqiyi",
+          "qiyi",
+          "cache",
+          "video"
+        ],
+        "MaxDepth": 4,
+        "ScoreThreshold": 5,
+        "MinCandidateBytes": 20971520
+      }
+    ],
+    "SearchHints": [
+      {
+        "Parent": "%LOCALAPPDATA%",
+        "DirectoryKeywords": [
+          "iqiyi",
+          "qiyi",
+          "qyplayer"
+        ],
+        "ChildMarkersAny": [
+          "cache",
+          "code cache",
+          "gpucache",
+          "temp",
+          "offline"
+        ],
+        "FileMarkersAny": [
+          "iqiyi",
+          "qiyi",
+          "cache",
+          "video"
+        ],
+        "MaxDepth": 4,
+        "MinCandidateBytes": 20971520
+      }
+    ],
+    "MaxDepth": 4,
+    "MinSizeThreshold": 20971520,
+    "Category": "VideoCache",
+    "IsExperimental": true
+  },
+  "Targets": [
+    {
+      "BaseFolder": "%LOCALAPPDATA%\\Qiyi\\QYPlayer\\Cache",
+      "Kind": "VideoCache",
+      "RiskLevel": "SafeWithPreview"
+    },
+    {
+      "BaseFolder": "%LOCALAPPDATA%\\Qiyi\\QYPlayer\\Code Cache",
+      "Kind": "VideoCache",
+      "RiskLevel": "SafeWithPreview"
+    },
+    {
+      "BaseFolder": "%LOCALAPPDATA%\\Qiyi\\QYPlayer\\GPUCache",
+      "Kind": "VideoCache",
+      "RiskLevel": "SafeWithPreview"
+    },
+    {
+      "BaseFolder": "%LOCALAPPDATA%\\Qiyi\\QYPlayer\\Temp",
+      "Kind": "VideoCache",
+      "RiskLevel": "SafeWithPreview"
+    }
+  ]
+}

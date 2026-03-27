@@ -11,7 +11,7 @@ namespace CDriveMaster.UI.Services;
 
 public sealed class WpfPreviewDialogService : IPreviewDialogService
 {
-    public async Task<IEnumerable<CleanupEntry>> ShowPreviewAsync(string title, IEnumerable<CleanupEntry> entries)
+    public async Task<IEnumerable<CleanupEntry>> ShowPreviewAsync(string title, IEnumerable<CleanupEntry> entries, string? summary = null)
     {
         var app = Application.Current;
         if (app is null)
@@ -22,7 +22,7 @@ public sealed class WpfPreviewDialogService : IPreviewDialogService
         return await app.Dispatcher.InvokeAsync(() =>
         {
             var entryList = entries.ToList();
-            var vm = new PreviewDialogViewModel(entryList);
+            var vm = new PreviewDialogViewModel(entryList, summary);
             var window = new PreviewDialogWindow
             {
                 Title = title,

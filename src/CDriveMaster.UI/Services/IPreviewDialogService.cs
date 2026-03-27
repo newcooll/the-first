@@ -6,5 +6,5 @@ namespace CDriveMaster.UI.Services;
 
 public interface IPreviewDialogService
 {
-    Task<IEnumerable<CleanupEntry>> ShowPreviewAsync(string title, IEnumerable<CleanupEntry> entries);
+    Task<IEnumerable<CleanupEntry>> ShowPreviewAsync(string title, IEnumerable<CleanupEntry> entries, string? summary = null);
 }

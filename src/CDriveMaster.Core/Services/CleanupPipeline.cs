@@ -76,7 +76,8 @@ public class CleanupPipeline : ICleanupPipeline
             SuggestedAction: parentBucket.SuggestedAction,
             Description: parentBucket.Description,
             EstimatedSizeBytes: entries.Sum(x => x.SizeBytes),
-            Entries: entries.AsReadOnly());
+            Entries: entries.AsReadOnly(),
+            AllowedRoots: parentBucket.AllowedRoots);
 
         var result = Execute(new[] { tempBucket }, apply);
         return result[0];

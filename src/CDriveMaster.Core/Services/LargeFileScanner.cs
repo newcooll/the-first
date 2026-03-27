@@ -11,6 +11,8 @@ namespace CDriveMaster.Core.Services;
 
 public sealed class LargeFileScanner
 {
+    public sealed record FastScanRoot(string Path, int MaxDepth);
+
     public sealed record ScanProgress(
         string CurrentPath,
         bool IsIndeterminate,
@@ -26,54 +28,41 @@ public sealed class LargeFileScanner
         int topCount = 20,
         CancellationToken ct = default)
     {
+        string systemPath = Environment.GetFolderPath(Environment.SpecialFolder.System);
+        string rootPath = Path.GetPathRoot(systemPath) ?? "C:\\";
+        return await ScanRootsAsync(
+            new[] { rootPath },
+            progress,
+            topCount,
+            ct,
+            useIndeterminateProgress: true);
+    }
+
+    public async Task<List<LargeFileItem>> ScanFullAsync(
+        IProgress<ScanProgress>? progress,
+        IReadOnlyList<string> rootPaths,
+        int topCount = 20,
+        CancellationToken ct = default)
+    {
         if (topCount <= 0)
         {
             return new List<LargeFileItem>();
         }
 
-        return await Task.Run(() =>
-        {
-            var queue = new PriorityQueue<LargeFileItem, long>();
-            var stopwatch = Stopwatch.StartNew();
-            long lastReportMs = -100;
-            int scannedDirs = 0;
-            int scannedFiles = 0;
-            int skippedCount = 0;
-
-            string systemPath = Environment.GetFolderPath(Environment.SpecialFolder.System);
-            string rootPath = Path.GetPathRoot(systemPath) ?? "C:\\";
-            ScanDirectory(
-                rootPath,
-                queue,
-                topCount,
-                progress,
-                ct,
-                stopwatch,
-                ref lastReportMs,
-                true,
-                0,
-                ref scannedDirs,
-                ref scannedFiles,
-                ref skippedCount);
-
-            ReportProgress(
-                progress,
-                rootPath,
-                true,
-                0,
-                scannedDirs,
-                scannedFiles,
-                skippedCount,
-                stopwatch,
-                ref lastReportMs,
-                force: true);
-
-            return ExtractTopItems(queue);
-        }, ct);
+        return await ScanRootsAsync(rootPaths, progress, topCount, ct, useIndeterminateProgress: false);
     }
 
     public async Task<List<LargeFileItem>> ScanFastAsync(
         IProgress<ScanProgress>? progress,
+        int topCount = 20,
+        CancellationToken ct = default)
+    {
+        return await ScanFastAsync(progress, GetDefaultFastScanRoots(), topCount, ct);
+    }
+
+    public async Task<List<LargeFileItem>> ScanFastAsync(
+        IProgress<ScanProgress>? progress,
+        IReadOnlyList<FastScanRoot> roots,
         int topCount = 20,
         CancellationToken ct = default)
     {
@@ -91,27 +80,22 @@ public sealed class LargeFileScanner
             int scannedFiles = 0;
             int skippedCount = 0;
 
-            var candidatePaths = new List<string>
-            {
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads"),
-                Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
-                Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-                Environment.ExpandEnvironmentVariables("%TEMP%"),
-                Environment.ExpandEnvironmentVariables("%SystemRoot%\\Temp")
-            }
-            .Where(x => !string.IsNullOrWhiteSpace(x))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
+            var candidateRoots = roots
+                .Where(root => !string.IsNullOrWhiteSpace(root.Path))
+                .Select(root => new FastScanRoot(root.Path.TrimEnd('\\'), Math.Max(0, root.MaxDepth)))
+                .DistinctBy(root => root.Path, StringComparer.OrdinalIgnoreCase)
+                .Where(root => Directory.Exists(root.Path))
+                .ToList();
 
-            int totalPaths = candidatePaths.Count;
+            int totalPaths = candidateRoots.Count;
             int index = 0;
 
-            foreach (var path in candidatePaths)
+            foreach (var root in candidateRoots)
             {
                 ct.ThrowIfCancellationRequested();
                 double percentage = totalPaths == 0 ? 100 : ((double)index / totalPaths) * 100d;
                 ScanDirectory(
-                    path,
+                    root.Path,
                     queue,
                     topCount,
                     progress,
@@ -120,6 +104,7 @@ public sealed class LargeFileScanner
                     ref lastReportMs,
                     false,
                     percentage,
+                    root.MaxDepth,
                     ref scannedDirs,
                     ref scannedFiles,
                     ref skippedCount);
@@ -172,6 +157,7 @@ public sealed class LargeFileScanner
                 ref lastReportMs,
                 true,
                 0,
+                int.MaxValue,
                 ref scannedDirs,
                 ref scannedFiles,
                 ref skippedCount);
@@ -202,6 +188,7 @@ public sealed class LargeFileScanner
             ref lastReportMs,
             true,
             0,
+            int.MaxValue,
             ref scannedDirs,
             ref scannedFiles,
             ref skippedCount);
@@ -217,6 +204,7 @@ public sealed class LargeFileScanner
         ref long lastReportMs,
         bool isIndeterminate,
         double percentage,
+        int maxRelativeDepth,
         ref int scannedDirs,
         ref int scannedFiles,
         ref int skippedCount)
@@ -226,8 +214,8 @@ public sealed class LargeFileScanner
             return;
         }
 
-        var pending = new Stack<string>();
-        pending.Push(path);
+        var pending = new Stack<(string Path, int Depth)>();
+        pending.Push((path, 0));
 
         var options = new EnumerationOptions
         {
@@ -239,7 +227,7 @@ public sealed class LargeFileScanner
         {
             ct.ThrowIfCancellationRequested();
 
-            string currentDir = pending.Pop();
+            var (currentDir, currentDepth) = pending.Pop();
             scannedDirs++;
 
             ReportProgress(
@@ -287,10 +275,15 @@ public sealed class LargeFileScanner
                     }
                 }
 
+                if (currentDepth >= maxRelativeDepth)
+                {
+                    continue;
+                }
+
                 foreach (var subDir in Directory.EnumerateDirectories(currentDir, "*", options))
                 {
                     ct.ThrowIfCancellationRequested();
-                    pending.Push(subDir);
+                    pending.Push((subDir, currentDepth + 1));
                 }
             }
             catch (Exception ex) when (ex is UnauthorizedAccessException || ex is IOException)
@@ -298,6 +291,82 @@ public sealed class LargeFileScanner
                 skippedCount++;
             }
         }
+    }
+
+    private async Task<List<LargeFileItem>> ScanRootsAsync(
+        IReadOnlyList<string> rootPaths,
+        IProgress<ScanProgress>? progress,
+        int topCount,
+        CancellationToken ct,
+        bool useIndeterminateProgress)
+    {
+        if (topCount <= 0)
+        {
+            return new List<LargeFileItem>();
+        }
+
+        var normalizedRoots = rootPaths
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(path => path.TrimEnd('\\'))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Where(Directory.Exists)
+            .ToList();
+        if (normalizedRoots.Count == 0)
+        {
+            return new List<LargeFileItem>();
+        }
+
+        return await Task.Run(() =>
+        {
+            var queue = new PriorityQueue<LargeFileItem, long>();
+            var stopwatch = Stopwatch.StartNew();
+            long lastReportMs = -100;
+            int scannedDirs = 0;
+            int scannedFiles = 0;
+            int skippedCount = 0;
+
+            for (int index = 0; index < normalizedRoots.Count; index++)
+            {
+                ct.ThrowIfCancellationRequested();
+
+                string rootPath = normalizedRoots[index];
+                double percentage = useIndeterminateProgress || normalizedRoots.Count == 0
+                    ? 0
+                    : ((double)index / normalizedRoots.Count) * 100d;
+
+                ScanDirectory(
+                    rootPath,
+                    queue,
+                    topCount,
+                    progress,
+                    ct,
+                    stopwatch,
+                    ref lastReportMs,
+                    useIndeterminateProgress,
+                    percentage,
+                    int.MaxValue,
+                    ref scannedDirs,
+                    ref scannedFiles,
+                    ref skippedCount);
+            }
+
+            string finalPath = normalizedRoots.Count == 1
+                ? normalizedRoots[0]
+                : $"定向目录扫描完成 ({normalizedRoots.Count} 个根目录)";
+            ReportProgress(
+                progress,
+                finalPath,
+                useIndeterminateProgress,
+                100,
+                scannedDirs,
+                scannedFiles,
+                skippedCount,
+                stopwatch,
+                ref lastReportMs,
+                force: true);
+
+            return ExtractTopItems(queue);
+        }, ct);
     }
 
     private static void ReportProgress(
@@ -344,5 +413,17 @@ public sealed class LargeFileScanner
 
         result.Reverse();
         return result;
+    }
+
+    private static IReadOnlyList<FastScanRoot> GetDefaultFastScanRoots()
+    {
+        return new[]
+        {
+            new FastScanRoot(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads"), 2),
+            new FastScanRoot(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), 0),
+            new FastScanRoot(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), 0),
+            new FastScanRoot(Environment.ExpandEnvironmentVariables("%TEMP%"), 2),
+            new FastScanRoot(Environment.ExpandEnvironmentVariables("%SystemRoot%\\Temp"), 2)
+        };
     }
 }

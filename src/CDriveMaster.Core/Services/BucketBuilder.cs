@@ -98,6 +98,7 @@ public class BucketBuilder
             SuggestedAction: action,
             Description: description,
             EstimatedSizeBytes: estimatedSizeBytes,
-            Entries: entries.AsReadOnly());
+            Entries: entries.AsReadOnly(),
+            AllowedRoots: new[] { resolvedRoot.FullName });
     }
 }

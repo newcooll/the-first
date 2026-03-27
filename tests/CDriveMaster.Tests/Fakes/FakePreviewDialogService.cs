@@ -15,7 +15,7 @@ public sealed class FakePreviewDialogService : IPreviewDialogService
 
     public bool WasCalled { get; private set; }
 
-    public Task<IEnumerable<CleanupEntry>> ShowPreviewAsync(string title, IEnumerable<CleanupEntry> entries)
+    public Task<IEnumerable<CleanupEntry>> ShowPreviewAsync(string title, IEnumerable<CleanupEntry> entries, string? summary = null)
     {
         WasCalled = true;
 

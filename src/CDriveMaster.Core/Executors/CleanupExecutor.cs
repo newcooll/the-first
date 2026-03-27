@@ -11,11 +11,13 @@ public class CleanupExecutor
 {
     private readonly PreflightGuard guard;
     private readonly string jobId;
+    private readonly ICleanupDeleteBackend deleteBackend;
 
-    public CleanupExecutor(PreflightGuard guard, string jobId)
+    public CleanupExecutor(PreflightGuard guard, string jobId, ICleanupDeleteBackend? deleteBackend = null)
     {
         this.guard = guard;
         this.jobId = jobId;
+        this.deleteBackend = deleteBackend ?? new WindowsCleanupDeleteBackend();
     }
 
     public IReadOnlyList<AuditLogItem> Execute(IReadOnlyList<CleanupBucket> buckets)
@@ -24,9 +26,10 @@ public class CleanupExecutor
 
         foreach (var bucket in buckets)
         {
+            var executableEntries = new List<CleanupEntry>();
             foreach (var entry in bucket.Entries)
             {
-                var preflight = guard.CheckPath(entry.Path);
+                var preflight = guard.CheckPath(entry.Path, bucket.AllowedRoots ?? new[] { bucket.RootPath });
                 if (!preflight.Passed)
                 {
                     logs.Add(new AuditLogItem(
@@ -43,87 +46,37 @@ public class CleanupExecutor
                         ErrorMessage: null));
                     continue;
                 }
+                executableEntries.Add(entry);
+            }
 
-                try
-                {
-                    if (entry.IsDirectory)
-                    {
-                        if (Directory.Exists(entry.Path))
-                        {
-                            Directory.Delete(entry.Path, recursive: true);
-                        }
-                    }
-                    else
-                    {
-                        if (File.Exists(entry.Path))
-                        {
-                            File.Delete(entry.Path);
-                        }
-                    }
+            if (executableEntries.Count == 0)
+            {
+                continue;
+            }
 
-                    logs.Add(new AuditLogItem(
-                        JobId: jobId,
-                        BucketId: bucket.BucketId,
-                        TimestampUtc: DateTime.UtcNow,
-                        TargetPath: entry.Path,
-                        TargetSizeBytes: entry.SizeBytes,
-                        Action: bucket.SuggestedAction,
-                        Risk: bucket.RiskLevel,
-                        AppName: bucket.AppName,
-                        Reason: preflight.Reason,
-                        Status: ExecutionStatus.Success,
-                        ErrorMessage: null));
-                }
-                catch (IOException ex)
+            var sizeByPath = executableEntries
+                .GroupBy(entry => entry.Path, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.First().SizeBytes, StringComparer.OrdinalIgnoreCase);
+
+            foreach (var result in deleteBackend.DeleteMany(executableEntries, bucket.SuggestedAction))
+            {
+                if (result.Status == ExecutionStatus.Skipped && !string.IsNullOrWhiteSpace(result.ErrorMessage))
                 {
-                    Debug.WriteLine($"Cleanup skipped due to IO lock: {entry.Path}. {ex.Message}");
-                    logs.Add(new AuditLogItem(
-                        JobId: jobId,
-                        BucketId: bucket.BucketId,
-                        TimestampUtc: DateTime.UtcNow,
-                        TargetPath: entry.Path,
-                        TargetSizeBytes: entry.SizeBytes,
-                        Action: bucket.SuggestedAction,
-                        Risk: bucket.RiskLevel,
-                        AppName: bucket.AppName,
-                        Reason: preflight.Reason,
-                        Status: ExecutionStatus.Skipped,
-                        ErrorMessage: ex.Message));
-                    continue;
+                    Debug.WriteLine($"Cleanup skipped: {result.Path}. {result.ErrorMessage}");
                 }
-                catch (UnauthorizedAccessException ex)
-                {
-                    Debug.WriteLine($"Cleanup skipped due to permission: {entry.Path}. {ex.Message}");
-                    logs.Add(new AuditLogItem(
-                        JobId: jobId,
-                        BucketId: bucket.BucketId,
-                        TimestampUtc: DateTime.UtcNow,
-                        TargetPath: entry.Path,
-                        TargetSizeBytes: entry.SizeBytes,
-                        Action: bucket.SuggestedAction,
-                        Risk: bucket.RiskLevel,
-                        AppName: bucket.AppName,
-                        Reason: preflight.Reason,
-                        Status: ExecutionStatus.Skipped,
-                        ErrorMessage: ex.Message));
-                    continue;
-                }
-                catch (Exception ex)
-                {
-                    logs.Add(new AuditLogItem(
-                        JobId: jobId,
-                        BucketId: bucket.BucketId,
-                        TimestampUtc: DateTime.UtcNow,
-                        TargetPath: entry.Path,
-                        TargetSizeBytes: entry.SizeBytes,
-                        Action: bucket.SuggestedAction,
-                        Risk: bucket.RiskLevel,
-                        AppName: bucket.AppName,
-                        Reason: preflight.Reason,
-                        Status: ExecutionStatus.Failed,
-                        ErrorMessage: ex.Message));
-                    continue;
-                }
+
+                logs.Add(new AuditLogItem(
+                    JobId: jobId,
+                    BucketId: bucket.BucketId,
+                    TimestampUtc: DateTime.UtcNow,
+                    TargetPath: result.Path,
+                    TargetSizeBytes: sizeByPath.TryGetValue(result.Path, out var sizeBytes) ? sizeBytes : 0,
+                    Action: bucket.SuggestedAction,
+                    Risk: bucket.RiskLevel,
+                    AppName: bucket.AppName,
+                    Reason: "Passed",
+                    Status: result.Status,
+                    ErrorMessage: result.ErrorMessage));
             }
         }
 

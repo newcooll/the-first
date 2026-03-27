@@ -24,7 +24,7 @@ public class DryRunExecutor
         {
             foreach (var entry in bucket.Entries)
             {
-                var check = preflightGuard.CheckPath(entry.Path);
+                var check = preflightGuard.CheckPath(entry.Path, bucket.AllowedRoots ?? new[] { bucket.RootPath });
                 if (!check.Passed)
                 {
                     logs.Add(new AuditLogItem(

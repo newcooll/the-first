@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using CDriveMaster.Core.Executors;
+using CDriveMaster.Core.Guards;
 using CDriveMaster.Core.Models;
 using CDriveMaster.Tests.Helpers;
 using FluentAssertions;
@@ -59,5 +60,21 @@ public sealed class PreflightAndDryRunTests
         var blockedLog = logs.Single(x => x.TargetPath.Equals(@"C:\Windows\Temp\Cache\fake.bin", StringComparison.OrdinalIgnoreCase));
         blockedLog.Status.Should().Be(ExecutionStatus.Blocked);
         blockedLog.Reason.Should().Contain("protected system directory");
+    }
+
+    [Fact]
+    public void Preflight_preview_fast_path_should_pass_exact_file_boundary_without_fs_probe()
+    {
+        using var sandbox = new TempSandbox("preflight-preview-fast");
+        string missingFile = Path.Combine(sandbox.Combine("AppData", "Youku", "Cache"), "chunk-001.bin");
+
+        var guard = new PreflightGuard();
+        var result = guard.CheckPathForPreview(
+            missingFile,
+            isDirectory: false,
+            allowedRoots: new[] { missingFile });
+
+        result.Passed.Should().BeTrue();
+        result.Reason.Should().Contain("Preview fast-pass");
     }
 }

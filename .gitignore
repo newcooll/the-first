@@ -11,6 +11,9 @@ obj/
 # Release artifacts
 artifacts/
 publish_output/
+publish/
+publish_v2/
+*.zip
 
 # OS
 Thumbs.db

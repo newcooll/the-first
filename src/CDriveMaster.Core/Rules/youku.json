@@ -1,0 +1,121 @@
+{
+  "AppName": "Youku",
+  "AppMatchKeywords": [
+    "Youku",
+    "优酷"
+  ],
+  "Description": "Youku desktop cache cleanup rule with conservative cache-only boundaries.",
+  "DefaultAction": "DeleteToRecycleBin",
+  "ResidualFingerprints": [
+    {
+      "Parent": "%LOCALAPPDATA%",
+      "PathKeywords": [
+        "youku",
+        "cache",
+        "gpucache"
+      ],
+      "MaxDepth": 5,
+      "MinSizeBytes": 20971520
+    }
+  ],
+  "FastScan": {
+    "HotPaths": [
+      "%LOCALAPPDATA%\\Youku\\Cache",
+      "%LOCALAPPDATA%\\Youku\\Code Cache",
+      "%LOCALAPPDATA%\\Youku\\GPUCache",
+      "%LOCALAPPDATA%\\Youku\\User Data\\Default\\Cache"
+    ],
+    "HeuristicSearchHints": [
+      {
+        "Parent": "%LOCALAPPDATA%",
+        "AppTokens": [
+          "youku"
+        ],
+        "CacheTokens": [
+          "cache",
+          "code cache",
+          "gpucache",
+          "offline",
+          "temp"
+        ],
+        "FileMarkersAny": [
+          "youku",
+          "cache",
+          "video"
+        ],
+        "MaxDepth": 4,
+        "ScoreThreshold": 5,
+        "MinCandidateBytes": 20971520
+      },
+      {
+        "Parent": "%APPDATA%",
+        "AppTokens": [
+          "youku"
+        ],
+        "CacheTokens": [
+          "cache",
+          "code cache",
+          "gpucache",
+          "offline",
+          "temp"
+        ],
+        "FileMarkersAny": [
+          "youku",
+          "cache",
+          "video"
+        ],
+        "MaxDepth": 4,
+        "ScoreThreshold": 5,
+        "MinCandidateBytes": 20971520
+      }
+    ],
+    "SearchHints": [
+      {
+        "Parent": "%LOCALAPPDATA%",
+        "DirectoryKeywords": [
+          "youku"
+        ],
+        "ChildMarkersAny": [
+          "cache",
+          "code cache",
+          "gpucache",
+          "offline",
+          "temp"
+        ],
+        "FileMarkersAny": [
+          "youku",
+          "cache",
+          "video"
+        ],
+        "MaxDepth": 4,
+        "MinCandidateBytes": 20971520
+      }
+    ],
+    "MaxDepth": 4,
+    "MinSizeThreshold": 20971520,
+    "Category": "VideoCache",
+    "IsExperimental": true
+  },
+  "Targets": [
+    {
+      "BaseFolder": "%LOCALAPPDATA%\\Youku\\Cache",
+      "Kind": "VideoCache",
+      "RiskLevel": "SafeWithPreview"
+    },
+    {
+      "BaseFolder": "%LOCALAPPDATA%\\Youku\\Code Cache",
+      "Kind": "VideoCache",
+      "RiskLevel": "SafeWithPreview"
+    },
+    {
+      "BaseFolder": "%LOCALAPPDATA%\\Youku\\GPUCache",
+      "Kind": "VideoCache",
+      "RiskLevel": "SafeWithPreview"
+    },
+    {
+      "BaseFolder": "%LOCALAPPDATA%\\Youku\\User Data\\Default\\Cache",
+      "Kind": "VideoCache",
+      "RiskLevel": "SafeWithPreview"
+    }
+  ]
+}

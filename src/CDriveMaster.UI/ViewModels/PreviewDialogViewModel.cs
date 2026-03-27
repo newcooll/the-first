@@ -13,8 +13,9 @@ namespace CDriveMaster.UI.ViewModels;
 public partial class PreviewDialogViewModel : ObservableObject
 {
     private bool suppressAllSelectedSync;
+    private bool suppressSelectionStatsRefresh;
 
-    public PreviewDialogViewModel(IEnumerable<CleanupEntry> entries)
+    public PreviewDialogViewModel(IEnumerable<CleanupEntry> entries, string? summaryText = null)
     {
         foreach (var entry in entries)
         {
@@ -23,10 +24,13 @@ public partial class PreviewDialogViewModel : ObservableObject
             Items.Add(item);
         }
 
+        SummaryText = summaryText ?? string.Empty;
         RecalculateStats();
     }
 
     public ObservableCollection<PreviewItemViewModel> Items { get; } = new();
+
+    public string SummaryText { get; }
 
     [ObservableProperty]
     private bool isAllSelected;
@@ -72,6 +76,7 @@ public partial class PreviewDialogViewModel : ObservableObject
         }
 
         suppressAllSelectedSync = true;
+        suppressSelectionStatsRefresh = true;
         try
         {
             foreach (var item in Items)
@@ -81,6 +86,7 @@ public partial class PreviewDialogViewModel : ObservableObject
         }
         finally
         {
+            suppressSelectionStatsRefresh = false;
             suppressAllSelectedSync = false;
         }
 
@@ -90,6 +96,11 @@ public partial class PreviewDialogViewModel : ObservableObject
     private void OnItemPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (!string.Equals(e.PropertyName, nameof(PreviewItemViewModel.IsSelected), StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        if (suppressSelectionStatsRefresh)
         {
             return;
         }
