@@ -25,12 +25,18 @@ namespace CDriveMaster.UI.ViewModels;
 public partial class BasicScanDashboardViewModel : ObservableObject
 {
     internal const long ReverseAttributionMinimumBytes = 100L * 1024L * 1024L;
-    internal const int AppDeepAttributionTopCount = 120;
+    internal const int AppDeepAttributionTopCount = 400;
     internal const int LargeFileDisplayCount = 20;
     internal const int CleanupExecutionBatchSize = 64;
+    internal const int TrustedCleanupExecutionBatchSize = 512;
     private static readonly HashSet<string> UnsafeCleanupExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".dll", ".exe", ".sys", ".drv", ".ocx", ".cpl", ".scr", ".com", ".msi", ".msp"
+    };
+    private static readonly HashSet<string> GenericIdentityKeywords = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "cache", "codecache", "gpucache", "temp", "tmp", "offline", "video", "blob",
+        "data", "default", "userdata", "componentstore", "download", "downloads"
     };
     private readonly LargeFileScanner scanner;
     private readonly RuleCatalog ruleCatalog;
@@ -46,6 +52,8 @@ public partial class BasicScanDashboardViewModel : ObservableObject
     public ObservableCollection<BasicScanGroup> ScanGroups { get; } = new();
 
     public ObservableCollection<FastScanFinding> AppHotspots { get; } = new();
+
+    public ObservableCollection<FastScanFinding> CommonAppCaches { get; } = new();
 
     public ObservableCollection<FastScanFinding> ResidualHotspots { get; } = new();
 
@@ -186,7 +194,8 @@ public partial class BasicScanDashboardViewModel : ObservableObject
             await Application.Current.Dispatcher.InvokeAsync(() =>
             {
                 ReplaceScanGroups(groups);
-                ReplaceAppHotspots(reverseAttributedHotspots);
+                ReplaceAppHotspots(Array.Empty<FastScanFinding>());
+                ReplaceCommonAppCaches(reverseAttributedHotspots);
                 ReplaceResidualHotspots(Array.Empty<FastScanFinding>());
             });
 
@@ -211,7 +220,8 @@ public partial class BasicScanDashboardViewModel : ObservableObject
                     finding => Application.Current.Dispatcher.Invoke(() => MergeAppHotspot(finding)));
                 await Application.Current.Dispatcher.InvokeAsync(() =>
                 {
-                    ReplaceAppHotspots(CombineAppHotspots(hotspots, reverseAttributedHotspots));
+                    ReplaceAppHotspots(hotspots);
+                    ReplaceCommonAppCaches(FilterCommonAppCaches(reverseAttributedHotspots, hotspots));
                 });
             }
             catch (OperationCanceledException)
@@ -575,6 +585,7 @@ public partial class BasicScanDashboardViewModel : ObservableObject
             if (fullyCleaned)
             {
                 AppHotspots.Remove(finding);
+                CommonAppCaches.Remove(finding);
                 ResidualHotspots.Remove(finding);
             }
 
@@ -724,10 +735,14 @@ public partial class BasicScanDashboardViewModel : ObservableObject
             return null;
         }
 
+        int executionBatchSize = useTrustedPreviewEntries
+            ? TrustedCleanupExecutionBatchSize
+            : CleanupExecutionBatchSize;
+
         var workBatches = workItems
             .GroupBy(item => item.Bucket.BucketId, StringComparer.OrdinalIgnoreCase)
             .SelectMany(group => group
-                .Chunk(CleanupExecutionBatchSize)
+                .Chunk(executionBatchSize)
                 .Select(chunk => new CleanupExecutionBatch(
                     group.First().Bucket,
                     chunk.Select(item => item.Entry).ToList().AsReadOnly())))
@@ -762,7 +777,11 @@ public partial class BasicScanDashboardViewModel : ObservableObject
             {
                 var batch = workBatches[batchIndex];
                 var result = await Task.Run(
-                    () => cleanupPipeline.ExecuteEntries(batch.Bucket, batch.Entries, apply: true),
+                    () => cleanupPipeline.ExecuteEntries(
+                        batch.Bucket,
+                        batch.Entries,
+                        apply: true,
+                        allowTrustedExactFileFastPath: useTrustedPreviewEntries),
                     cancellationToken);
                 entryResults.Add(result);
 
@@ -1198,7 +1217,6 @@ public partial class BasicScanDashboardViewModel : ObservableObject
         var aggregatedMatches = new Dictionary<string, ReverseAttributedMatch>(StringComparer.OrdinalIgnoreCase);
         foreach (var file in largeFiles
                      .Where(file => file.SizeBytes >= ReverseAttributionMinimumBytes)
-                     .Where(file => IsSafeCleanupFile(file.FilePath))
                      .OrderByDescending(file => file.SizeBytes))
         {
             var match = MatchLargeFileToRule(file, rules);
@@ -1218,6 +1236,7 @@ public partial class BasicScanDashboardViewModel : ObservableObject
 
         return aggregatedMatches.Values
             .Select(BuildReverseAttributedFinding)
+            .Where(finding => finding.OriginalBucket is not null)
             .OrderByDescending(finding => finding.TotalSizeBytes)
             .ToList();
     }
@@ -1360,6 +1379,18 @@ public partial class BasicScanDashboardViewModel : ObservableObject
         RefreshDashboardTotals();
     }
 
+    private void ReplaceCommonAppCaches(IReadOnlyList<FastScanFinding> findings)
+    {
+        var aggregatedFindings = CollapseCommonAppCachesForDisplay(findings);
+        CommonAppCaches.Clear();
+        foreach (var finding in aggregatedFindings)
+        {
+            CommonAppCaches.Add(finding);
+        }
+
+        RefreshDashboardTotals();
+    }
+
     private void MergeAppHotspot(FastScanFinding hotspot)
     {
         int existingIndex = AppHotspots
@@ -1382,7 +1413,7 @@ public partial class BasicScanDashboardViewModel : ObservableObject
 
     private void ReplaceResidualHotspots(IReadOnlyList<FastScanFinding> hotspots)
     {
-        var aggregatedHotspots = AggregateFindingsByApp(hotspots);
+        var aggregatedHotspots = CollapseResidualHotspotsForDisplay(hotspots);
         ResidualHotspots.Clear();
         foreach (var hotspot in aggregatedHotspots)
         {
@@ -1394,19 +1425,15 @@ public partial class BasicScanDashboardViewModel : ObservableObject
 
     private void MergeResidualHotspot(FastScanFinding hotspot)
     {
-        int existingIndex = ResidualHotspots
-            .Select((item, index) => new { item, index })
-            .Where(entry => string.Equals(entry.item.AppId, hotspot.AppId, StringComparison.OrdinalIgnoreCase))
-            .Select(entry => entry.index)
-            .FirstOrDefault(-1);
+        var regroupedHotspots = CollapseResidualHotspotsForDisplay(
+            ResidualHotspots
+                .Concat(new[] { hotspot })
+                .ToList());
 
-        if (existingIndex >= 0)
+        ResidualHotspots.Clear();
+        foreach (var item in regroupedHotspots)
         {
-            ResidualHotspots[existingIndex] = MergeFindings(ResidualHotspots[existingIndex], hotspot);
-        }
-        else
-        {
-            ResidualHotspots.Add(hotspot);
+            ResidualHotspots.Add(item);
         }
 
         RefreshDashboardTotals();
@@ -1437,10 +1464,240 @@ public partial class BasicScanDashboardViewModel : ObservableObject
         long hotspotBytes = AppHotspots
             .Where(item => item.IsHotspot)
             .Sum(item => item.TotalSizeBytes)
+            + CommonAppCaches
+                .Where(item => item.IsHotspot)
+                .Sum(item => item.TotalSizeBytes)
             + ResidualHotspots
                 .Where(item => item.IsHotspot)
                 .Sum(item => item.TotalSizeBytes);
         TotalFoundBytes = groupBytes + hotspotBytes;
+    }
+
+    internal static IReadOnlyList<FastScanFinding> FilterCommonAppCaches(
+        IReadOnlyList<FastScanFinding> commonCandidates,
+        IReadOnlyList<FastScanFinding> preciseHotspots)
+    {
+        if (commonCandidates.Count == 0)
+        {
+            return Array.Empty<FastScanFinding>();
+        }
+
+        var precisePaths = preciseHotspots
+            .Select(GetCommonCacheGroupingPath)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        return AggregateCommonAppCachesByPath(commonCandidates)
+            .Where(item =>
+            {
+                string groupingPath = GetCommonCacheGroupingPath(item);
+                return string.IsNullOrWhiteSpace(groupingPath)
+                    || !precisePaths.Any(path => IsSameOrAncestorPath(path, groupingPath) || IsSameOrAncestorPath(groupingPath, path));
+            })
+            .OrderByDescending(item => item.TotalSizeBytes)
+            .ToList();
+    }
+
+    internal static IReadOnlyList<FastScanFinding> AggregateCommonAppCachesByPath(IEnumerable<FastScanFinding> findings)
+    {
+        var grouped = findings
+            .Where(item => item is not null)
+            .GroupBy(GetCommonCacheGroupingPath, StringComparer.OrdinalIgnoreCase)
+            .Where(group => !string.IsNullOrWhiteSpace(group.Key));
+
+        var result = new List<FastScanFinding>();
+        foreach (var group in grouped)
+        {
+            var items = group.ToList();
+            var merged = items[0];
+            for (int i = 1; i < items.Count; i++)
+            {
+                merged = MergeFindings(merged, items[i]);
+            }
+
+            string candidateApps = string.Join(" / ", items
+                .Select(item => item.AppName)
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(name => name, StringComparer.OrdinalIgnoreCase));
+
+            result.Add(merged with
+            {
+                AppId = $"common-cache:{group.Key}",
+                Category = string.IsNullOrWhiteSpace(candidateApps) ? "候选应用: 未知" : $"候选应用: {candidateApps}",
+                PrimaryPath = group.Key
+            });
+        }
+
+        return result
+            .OrderByDescending(item => item.TotalSizeBytes)
+            .ToList();
+    }
+
+    internal static IReadOnlyList<FastScanFinding> CollapseCommonAppCachesForDisplay(IEnumerable<FastScanFinding> findings)
+    {
+        var groupedByPath = AggregateCommonAppCachesByPath(findings);
+        if (groupedByPath.Count == 0)
+        {
+            return Array.Empty<FastScanFinding>();
+        }
+
+        var merged = groupedByPath[0];
+        for (int i = 1; i < groupedByPath.Count; i++)
+        {
+            merged = MergeFindings(merged, groupedByPath[i]);
+        }
+
+        var candidateApps = groupedByPath
+            .Select(item => item.Category)
+            .Where(category => !string.IsNullOrWhiteSpace(category))
+            .SelectMany(ExtractCandidateApps)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        string displayRoot = groupedByPath[0].PrimaryPath
+            ?? Path.GetDirectoryName(groupedByPath[0].SourcePath)
+            ?? groupedByPath[0].SourcePath;
+        string category = candidateApps.Length == 0
+            ? "候选应用: 未知"
+            : $"候选应用: {string.Join(" / ", candidateApps)}";
+
+        return new[]
+        {
+            merged with
+            {
+                AppId = "常见应用深层残留",
+                Category = category,
+                PrimaryPath = $"已合并 {groupedByPath.Count} 个路径",
+                IsHeuristicMatch = true,
+                OriginalBucket = RetagBucket(
+                    merged.OriginalBucket,
+                    "常见应用深层残留",
+                    category,
+                    displayRoot,
+                    $"Common deep residual - aggregated {groupedByPath.Count} paths")
+            }
+        };
+    }
+
+    internal static IReadOnlyList<FastScanFinding> AggregateResidualHotspots(IEnumerable<FastScanFinding> findings)
+    {
+        var grouped = findings
+            .Where(item => item is not null)
+            .GroupBy(GetCommonCacheGroupingPath, StringComparer.OrdinalIgnoreCase)
+            .Where(group => !string.IsNullOrWhiteSpace(group.Key));
+
+        var result = new List<FastScanFinding>();
+        foreach (var group in grouped)
+        {
+            var items = group.ToList();
+            var merged = items[0];
+            for (int i = 1; i < items.Count; i++)
+            {
+                merged = MergeFindings(merged, items[i]);
+            }
+
+            var candidateApps = items
+                .Select(item => item.AppName)
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
+            if (candidateApps.Length > 1)
+            {
+                const string commonResidualLabel = "常见应用深层残留";
+                string category = $"候选应用: {string.Join(" / ", candidateApps)}";
+                result.Add(merged with
+                {
+                    AppId = commonResidualLabel,
+                    Category = category,
+                    PrimaryPath = group.Key,
+                    IsHeuristicMatch = true,
+                    OriginalBucket = RetagBucket(
+                        merged.OriginalBucket,
+                        commonResidualLabel,
+                        category,
+                        group.Key,
+                        $"Common deep residual - {Path.GetFileName(group.Key)}")
+                });
+                continue;
+            }
+
+            result.Add(merged with
+            {
+                PrimaryPath = group.Key
+            });
+        }
+
+        return result
+            .OrderByDescending(item => item.TotalSizeBytes)
+            .ToList();
+    }
+
+    internal static IReadOnlyList<FastScanFinding> CollapseResidualHotspotsForDisplay(IEnumerable<FastScanFinding> findings)
+    {
+        var aggregated = AggregateResidualHotspots(findings);
+        if (aggregated.Count == 0)
+        {
+            return Array.Empty<FastScanFinding>();
+        }
+
+        const string commonResidualLabel = "常见应用深层残留";
+        var preciseResiduals = aggregated
+            .Where(item => !string.Equals(item.AppId, commonResidualLabel, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        var commonResiduals = aggregated
+            .Where(item => string.Equals(item.AppId, commonResidualLabel, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (commonResiduals.Count == 0)
+        {
+            return preciseResiduals
+                .OrderByDescending(item => item.TotalSizeBytes)
+                .ToList();
+        }
+
+        var merged = commonResiduals[0];
+        for (int i = 1; i < commonResiduals.Count; i++)
+        {
+            merged = MergeFindings(merged, commonResiduals[i]);
+        }
+
+        var candidateApps = commonResiduals
+            .Select(item => item.Category)
+            .Where(category => !string.IsNullOrWhiteSpace(category))
+            .SelectMany(ExtractCandidateApps)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        string displayRoot = commonResiduals[0].PrimaryPath
+            ?? Path.GetDirectoryName(commonResiduals[0].SourcePath)
+            ?? commonResiduals[0].SourcePath;
+        string category = candidateApps.Length == 0
+            ? "候选应用: 未知"
+            : $"候选应用: {string.Join(" / ", candidateApps)}";
+
+        preciseResiduals.Add(merged with
+        {
+            AppId = commonResidualLabel,
+            Category = category,
+            PrimaryPath = $"已合并 {commonResiduals.Count} 个路径",
+            IsHeuristicMatch = true,
+            OriginalBucket = RetagBucket(
+                merged.OriginalBucket,
+                commonResidualLabel,
+                category,
+                displayRoot,
+                $"Common deep residual - aggregated {commonResiduals.Count} paths")
+        });
+
+        return preciseResiduals
+            .OrderByDescending(item => item.TotalSizeBytes)
+            .ToList();
     }
 
     internal static IReadOnlyList<FastScanFinding> CombineAppHotspots(
@@ -1575,6 +1832,9 @@ public partial class BasicScanDashboardViewModel : ObservableObject
         var appKeywords = EnumerateAppKeywords(rule).ToArray();
         var cacheKeywords = EnumerateCacheKeywords(rule).ToArray();
         var residualKeywords = EnumerateResidualKeywords(rule).ToArray();
+        var identityResidualKeywords = residualKeywords
+            .Where(IsIdentityKeyword)
+            .ToArray();
         var pathSegments = EnumeratePathSegments(normalizedPath).ToArray();
         var normalizedSegments = pathSegments
             .Select(NormalizePathToken)
@@ -1609,8 +1869,8 @@ public partial class BasicScanDashboardViewModel : ObservableObject
             score += 40;
         }
 
-        bool matchedResidualKeyword = residualKeywords.Any(keyword => MatchesNormalizedKeyword(normalizedPathToken, normalizedSegments, keyword));
-        if (matchedResidualKeyword)
+        bool matchedIdentityResidualKeyword = identityResidualKeywords.Any(keyword => MatchesNormalizedKeyword(normalizedPathToken, normalizedSegments, keyword));
+        if (matchedIdentityResidualKeyword)
         {
             score += 90;
         }
@@ -1619,7 +1879,7 @@ public partial class BasicScanDashboardViewModel : ObservableObject
             && string.IsNullOrWhiteSpace(anchorRoot)
             && string.IsNullOrWhiteSpace(parentKeywordAnchor)
             && !matchedAppKeyword
-            && !matchedResidualKeyword)
+            && !matchedIdentityResidualKeyword)
         {
             return null;
         }
@@ -1628,7 +1888,7 @@ public partial class BasicScanDashboardViewModel : ObservableObject
             && string.IsNullOrWhiteSpace(anchorRoot)
             && string.IsNullOrWhiteSpace(parentKeywordAnchor)
             && !matchedCacheKeyword
-            && !matchedResidualKeyword
+            && !matchedIdentityResidualKeyword
             && file.SizeBytes < 500L * 1024L * 1024L)
         {
             return null;
@@ -1645,7 +1905,7 @@ public partial class BasicScanDashboardViewModel : ObservableObject
                 ? "通过大文件反向归因命中应用锚点目录"
                 : !string.IsNullOrWhiteSpace(parentKeywordAnchor)
                     ? "通过大文件反向归因命中规则父目录下的应用路径"
-                : matchedResidualKeyword
+                : matchedIdentityResidualKeyword
                     ? "通过大文件反向归因命中路径关键词"
                     : "通过大文件反向归因命中应用关键词与缓存关键词";
 
@@ -1796,6 +2056,21 @@ public partial class BasicScanDashboardViewModel : ObservableObject
         };
     }
 
+    private static string GetCommonCacheGroupingPath(FastScanFinding finding)
+    {
+        string? preferredPath = !string.IsNullOrWhiteSpace(finding.PrimaryPath)
+            ? finding.PrimaryPath
+            : Path.GetDirectoryName(finding.SourcePath);
+        if (string.IsNullOrWhiteSpace(preferredPath))
+        {
+            preferredPath = finding.SourcePath;
+        }
+
+        return string.IsNullOrWhiteSpace(preferredPath)
+            ? string.Empty
+            : NormalizePathForComparison(preferredPath);
+    }
+
     private static ProbeTraceInfo MergeTrace(
         ProbeTraceInfo left,
         ProbeTraceInfo right,
@@ -1883,6 +2158,40 @@ public partial class BasicScanDashboardViewModel : ObservableObject
             EstimatedSizeBytes: entries.Sum(entry => entry.SizeBytes),
             Entries: entries.AsReadOnly(),
             AllowedRoots: allowedRoots);
+    }
+
+    private static CleanupBucket? RetagBucket(
+        CleanupBucket? bucket,
+        string appName,
+        string category,
+        string rootPath,
+        string description)
+    {
+        if (bucket is null)
+        {
+            return null;
+        }
+
+        return bucket with
+        {
+            AppName = appName,
+            Category = category,
+            RootPath = rootPath,
+            Description = description,
+            EstimatedSizeBytes = bucket.Entries.Sum(entry => entry.SizeBytes)
+        };
+    }
+
+    private static IEnumerable<string> ExtractCandidateApps(string category)
+    {
+        const string prefix = "候选应用:";
+        string payload = category.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            ? category[prefix.Length..]
+            : category;
+
+        return payload
+            .Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(item => !string.IsNullOrWhiteSpace(item));
     }
 
     private static string? MergePrimaryPath(string? left, string? right)
@@ -2017,6 +2326,12 @@ public partial class BasicScanDashboardViewModel : ObservableObject
         }
     }
 
+    private static bool IsIdentityKeyword(string keyword)
+    {
+        string normalized = NormalizePathToken(keyword);
+        return !string.IsNullOrWhiteSpace(normalized) && !GenericIdentityKeywords.Contains(normalized);
+    }
+
     private static IEnumerable<string> EnumerateCacheKeywords(CleanupRule rule)
     {
         if (rule.FastScan?.HeuristicSearchHints is not null)
@@ -2110,7 +2425,7 @@ public partial class BasicScanDashboardViewModel : ObservableObject
     private static IEnumerable<string> DiscoverRuleRootsFromSearchParents(CleanupRule rule)
     {
         var keywords = EnumerateAppKeywords(rule)
-            .Concat(EnumerateResidualKeywords(rule))
+            .Concat(EnumerateResidualKeywords(rule).Where(IsIdentityKeyword))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
         if (keywords.Length == 0)
@@ -2319,7 +2634,7 @@ public partial class BasicScanDashboardViewModel : ObservableObject
         }
 
         var matchKeywords = EnumerateAppKeywords(rule)
-            .Concat(EnumerateResidualKeywords(rule))
+            .Concat(EnumerateResidualKeywords(rule).Where(IsIdentityKeyword))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
         if (matchKeywords.Length == 0)

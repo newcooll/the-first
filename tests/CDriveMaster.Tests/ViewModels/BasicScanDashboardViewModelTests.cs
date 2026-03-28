@@ -247,7 +247,7 @@ public sealed class BasicScanDashboardViewModelTests
 
         hotspots.Should().ContainSingle();
         hotspots[0].AppId.Should().Be("Xunlei");
-        hotspots[0].TotalSizeBytes.Should().Be(320L * 1024L * 1024L);
+        hotspots[0].TotalSizeBytes.Should().Be((320L + 380L) * 1024L * 1024L);
         hotspots[0].OriginalBucket.Should().NotBeNull();
         hotspots[0].OriginalBucket!.Entries.Should().ContainSingle();
         hotspots[0].OriginalBucket!.Entries[0].Path.Should().EndWith("video-a.bin");
@@ -279,6 +279,82 @@ public sealed class BasicScanDashboardViewModelTests
                 {
                     Category = "DownloadCache",
                     MinSizeThreshold = 20L * 1024L * 1024L
+                }
+            }
+        };
+
+        var hotspots = BasicScanDashboardViewModel.BuildReverseAttributedHotspots(files, rules);
+
+        hotspots.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void BuildReverseAttributedHotspots_ShouldNotClassifyGenericCachePathWithoutAppIdentity()
+    {
+        using var sandbox = new TempSandbox("vm-reverse-generic-cache");
+        string genericCache = sandbox.CreateDirectory("LocalAppData", "Packages", "Shared", "GPUCache");
+
+        var files = new[]
+        {
+            new LargeFileItem("shared-video.bin", Path.Combine(genericCache, "shared-video.bin"), 780L * 1024L * 1024L, DateTime.Now)
+        };
+
+        var rules = new[]
+        {
+            new CleanupRule
+            {
+                AppName = "Youku",
+                AppMatchKeywords = new[] { "Youku" },
+                DefaultAction = CleanupAction.DeleteToRecycleBin,
+                FastScan = new FastScanHint
+                {
+                    Category = "VideoCache",
+                    HeuristicSearchHints = new HeuristicSearchHint[]
+                    {
+                        new HeuristicSearchHint
+                        {
+                            Parent = sandbox.Combine("LocalAppData"),
+                            AppTokens = new[] { "youku" },
+                            CacheTokens = new[] { "cache", "gpucache" },
+                            FileMarkersAny = new[] { "video" }
+                        }
+                    }
+                },
+                ResidualFingerprints = new List<ResidualFingerprint>
+                {
+                    new()
+                    {
+                        Parent = sandbox.Combine("LocalAppData"),
+                        PathKeywords = new List<string> { "youku", "cache", "gpucache" }
+                    }
+                }
+            },
+            new CleanupRule
+            {
+                AppName = "Xunlei",
+                AppMatchKeywords = new[] { "Xunlei", "Thunder" },
+                DefaultAction = CleanupAction.DeleteToRecycleBin,
+                FastScan = new FastScanHint
+                {
+                    Category = "DownloadCache",
+                    HeuristicSearchHints = new HeuristicSearchHint[]
+                    {
+                        new HeuristicSearchHint
+                        {
+                            Parent = sandbox.Combine("LocalAppData"),
+                            AppTokens = new[] { "xunlei", "thunder" },
+                            CacheTokens = new[] { "cache", "gpucache" },
+                            FileMarkersAny = new[] { "video" }
+                        }
+                    }
+                },
+                ResidualFingerprints = new List<ResidualFingerprint>
+                {
+                    new()
+                    {
+                        Parent = sandbox.Combine("LocalAppData"),
+                        PathKeywords = new List<string> { "xunlei", "thunder", "cache", "gpucache" }
+                    }
                 }
             }
         };
@@ -325,6 +401,228 @@ public sealed class BasicScanDashboardViewModelTests
         combined[0].TotalSizeBytes.Should().Be(640L * 1024L * 1024L);
         combined[0].PrimaryPath.Should().Be(reverseAttributed.PrimaryPath);
         combined[0].IsHotspot.Should().BeTrue();
+    }
+
+    [Fact]
+    public void FilterCommonAppCaches_ShouldKeepUnrelatedPathCandidateWhenPreciseHotspotUsesDifferentPath()
+    {
+        var commonCandidates = new[]
+        {
+            new FastScanFinding
+            {
+                AppId = "Youku",
+                SizeBytes = 700L * 1024L * 1024L,
+                PrimaryPath = @"C:\Users\Test\AppData\Local\Shared\Cache",
+                SourcePath = @"C:\Users\Test\AppData\Local\Shared\Cache\a.bin",
+                IsExactSize = true,
+                DisplaySize = "700 MB",
+                IsHotspot = true,
+                IsHeuristicMatch = true
+            },
+            new FastScanFinding
+            {
+                AppId = "Quark",
+                SizeBytes = 900L * 1024L * 1024L,
+                PrimaryPath = @"C:\Users\Test\AppData\Local\AnotherShared\Cache",
+                SourcePath = @"C:\Users\Test\AppData\Local\AnotherShared\Cache\b.bin",
+                IsExactSize = true,
+                DisplaySize = "900 MB",
+                IsHotspot = true,
+                IsHeuristicMatch = true
+            }
+        };
+
+        var preciseHotspots = new[]
+        {
+            new FastScanFinding
+            {
+                AppId = "Youku",
+                SizeBytes = 256L * 1024L * 1024L,
+                PrimaryPath = @"C:\Users\Test\AppData\Local\Youku\Cache",
+                SourcePath = @"C:\Users\Test\AppData\Local\Youku\Cache\c.bin",
+                IsExactSize = true,
+                DisplaySize = "256 MB",
+                IsHotspot = true,
+                IsHeuristicMatch = false
+            }
+        };
+
+        var filtered = BasicScanDashboardViewModel.FilterCommonAppCaches(commonCandidates, preciseHotspots);
+
+        filtered.Should().HaveCount(2);
+        filtered.Select(item => item.PrimaryPath).Should().BeEquivalentTo(new[]
+        {
+            @"C:\Users\Test\AppData\Local\Shared\Cache",
+            @"C:\Users\Test\AppData\Local\AnotherShared\Cache"
+        });
+        filtered.Should().OnlyContain(item => item.AppId.StartsWith("common-cache:", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void AggregateCommonAppCachesByPath_ShouldMergeSamePathAcrossDifferentCandidateApps()
+    {
+        string sharedPath = @"C:\Users\Test\AppData\Local\Shared\Cache";
+        var findings = new[]
+        {
+            new FastScanFinding
+            {
+                AppId = "Youku",
+                SizeBytes = 700L * 1024L * 1024L,
+                Category = "VideoCache",
+                PrimaryPath = sharedPath,
+                SourcePath = Path.Combine(sharedPath, "a.bin"),
+                IsExactSize = true,
+                DisplaySize = "700 MB",
+                IsHotspot = true,
+                IsHeuristicMatch = true
+            },
+            new FastScanFinding
+            {
+                AppId = "Xunlei",
+                SizeBytes = 600L * 1024L * 1024L,
+                Category = "DownloadCache",
+                PrimaryPath = sharedPath,
+                SourcePath = Path.Combine(sharedPath, "b.bin"),
+                IsExactSize = true,
+                DisplaySize = "600 MB",
+                IsHotspot = true,
+                IsHeuristicMatch = true
+            },
+            new FastScanFinding
+            {
+                AppId = "iQIYI",
+                SizeBytes = 500L * 1024L * 1024L,
+                Category = "VideoCache",
+                PrimaryPath = sharedPath,
+                SourcePath = Path.Combine(sharedPath, "c.bin"),
+                IsExactSize = true,
+                DisplaySize = "500 MB",
+                IsHotspot = true,
+                IsHeuristicMatch = true
+            }
+        };
+
+        var aggregated = BasicScanDashboardViewModel.AggregateCommonAppCachesByPath(findings);
+
+        aggregated.Should().ContainSingle();
+        aggregated[0].PrimaryPath.Should().Be(sharedPath);
+        aggregated[0].TotalSizeBytes.Should().Be((700L + 600L + 500L) * 1024L * 1024L);
+        aggregated[0].Category.Should().Contain("Youku");
+        aggregated[0].Category.Should().Contain("Xunlei");
+        aggregated[0].Category.Should().Contain("iQIYI");
+        aggregated[0].AppId.Should().StartWith("common-cache:");
+    }
+
+    [Fact]
+    public void CollapseCommonAppCachesForDisplay_ShouldMergeAllPathsIntoSingleCard()
+    {
+        var findings = new[]
+        {
+            new FastScanFinding
+            {
+                AppId = "Youku",
+                SizeBytes = 700L * 1024L * 1024L,
+                Category = "VideoCache",
+                PrimaryPath = @"C:\Users\Test\AppData\Local\Shared\Cache",
+                SourcePath = @"C:\Users\Test\AppData\Local\Shared\Cache\a.bin",
+                IsExactSize = true,
+                DisplaySize = "700 MB",
+                IsHotspot = true,
+                IsHeuristicMatch = true,
+                OriginalBucket = new CleanupBucket(
+                    BucketId: "common-a",
+                    Category: "VideoCache",
+                    RootPath: @"C:\Users\Test\AppData\Local\Shared\Cache",
+                    AppName: "Youku",
+                    RiskLevel: RiskLevel.SafeWithPreview,
+                    SuggestedAction: CleanupAction.DeleteToRecycleBin,
+                    Description: "A",
+                    EstimatedSizeBytes: 700L * 1024L * 1024L,
+                    Entries: new List<CleanupEntry>
+                    {
+                        new(@"C:\Users\Test\AppData\Local\Shared\Cache\a.bin", false, 700L * 1024L * 1024L, DateTime.UtcNow, "VideoCache")
+                    }.AsReadOnly())
+            },
+            new FastScanFinding
+            {
+                AppId = "Xunlei",
+                SizeBytes = 500L * 1024L * 1024L,
+                Category = "DownloadCache",
+                PrimaryPath = @"C:\Users\Test\AppData\Local\AnotherShared\Cache",
+                SourcePath = @"C:\Users\Test\AppData\Local\AnotherShared\Cache\b.bin",
+                IsExactSize = true,
+                DisplaySize = "500 MB",
+                IsHotspot = true,
+                IsHeuristicMatch = true,
+                OriginalBucket = new CleanupBucket(
+                    BucketId: "common-b",
+                    Category: "DownloadCache",
+                    RootPath: @"C:\Users\Test\AppData\Local\AnotherShared\Cache",
+                    AppName: "Xunlei",
+                    RiskLevel: RiskLevel.SafeWithPreview,
+                    SuggestedAction: CleanupAction.DeleteToRecycleBin,
+                    Description: "B",
+                    EstimatedSizeBytes: 500L * 1024L * 1024L,
+                    Entries: new List<CleanupEntry>
+                    {
+                        new(@"C:\Users\Test\AppData\Local\AnotherShared\Cache\b.bin", false, 500L * 1024L * 1024L, DateTime.UtcNow, "DownloadCache")
+                    }.AsReadOnly())
+            }
+        };
+
+        var collapsed = BasicScanDashboardViewModel.CollapseCommonAppCachesForDisplay(findings);
+
+        collapsed.Should().ContainSingle();
+        collapsed[0].AppId.Should().Be("常见应用深层残留");
+        collapsed[0].Category.Should().Contain("Youku");
+        collapsed[0].Category.Should().Contain("Xunlei");
+        collapsed[0].PrimaryPath.Should().Be("已合并 2 个路径");
+        collapsed[0].TotalSizeBytes.Should().Be((700L + 500L) * 1024L * 1024L);
+        collapsed[0].OriginalBucket.Should().NotBeNull();
+        var bucket = collapsed[0].OriginalBucket!;
+        bucket.Entries.Should().HaveCount(2);
+        bucket.AppName.Should().Be("常见应用深层残留");
+    }
+
+    [Fact]
+    public void FilterCommonAppCaches_ShouldExcludeCommonCandidateWhenPreciseHotspotSharesSamePath()
+    {
+        string sharedPath = @"C:\Users\Test\AppData\Local\Shared\Cache";
+        var commonCandidates = new[]
+        {
+            new FastScanFinding
+            {
+                AppId = "common-cache:shared",
+                SizeBytes = 700L * 1024L * 1024L,
+                Category = "候选应用: Youku / Xunlei",
+                PrimaryPath = sharedPath,
+                SourcePath = Path.Combine(sharedPath, "a.bin"),
+                IsExactSize = true,
+                DisplaySize = "700 MB",
+                IsHotspot = true,
+                IsHeuristicMatch = true
+            }
+        };
+
+        var preciseHotspots = new[]
+        {
+            new FastScanFinding
+            {
+                AppId = "Youku",
+                SizeBytes = 256L * 1024L * 1024L,
+                Category = "VideoCache",
+                PrimaryPath = sharedPath,
+                SourcePath = Path.Combine(sharedPath, "confirmed.bin"),
+                IsExactSize = true,
+                DisplaySize = "256 MB",
+                IsHotspot = true,
+                IsHeuristicMatch = false
+            }
+        };
+
+        var filtered = BasicScanDashboardViewModel.FilterCommonAppCaches(commonCandidates, preciseHotspots);
+
+        filtered.Should().BeEmpty();
     }
 
     [Fact]
@@ -388,6 +686,266 @@ public sealed class BasicScanDashboardViewModelTests
         aggregated[0].TotalSizeBytes.Should().Be(620L * 1024L * 1024L);
         aggregated[0].OriginalBucket.Should().NotBeNull();
         aggregated[0].OriginalBucket!.Entries.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public void AggregateResidualHotspots_ShouldMergeSamePathAcrossDifferentAppsIntoCommonDeepResidual()
+    {
+        string sharedPath = @"C:\Users\Test\AppData\Local\Shared\DeepCache";
+        var findings = new[]
+        {
+            new FastScanFinding
+            {
+                AppId = "Xunlei",
+                SizeBytes = 300L * 1024L * 1024L,
+                Category = "ResidualCache",
+                PrimaryPath = sharedPath,
+                SourcePath = sharedPath,
+                IsExactSize = true,
+                DisplaySize = "300 MB",
+                IsHotspot = true,
+                IsResidual = true,
+                OriginalBucket = new CleanupBucket(
+                    BucketId: "xunlei-shared",
+                    Category: "ResidualCache",
+                    RootPath: sharedPath,
+                    AppName: "Xunlei",
+                    RiskLevel: RiskLevel.SafeWithPreview,
+                    SuggestedAction: CleanupAction.DeleteToRecycleBin,
+                    Description: "shared-a",
+                    EstimatedSizeBytes: 300L * 1024L * 1024L,
+                    Entries: new List<CleanupEntry>
+                    {
+                        new(Path.Combine(sharedPath, "a.bin"), false, 300L * 1024L * 1024L, DateTime.UtcNow, "ResidualCache")
+                    }.AsReadOnly())
+            },
+            new FastScanFinding
+            {
+                AppId = "Youku",
+                SizeBytes = 280L * 1024L * 1024L,
+                Category = "ResidualCache",
+                PrimaryPath = sharedPath,
+                SourcePath = sharedPath,
+                IsExactSize = true,
+                DisplaySize = "280 MB",
+                IsHotspot = true,
+                IsResidual = true,
+                OriginalBucket = new CleanupBucket(
+                    BucketId: "youku-shared",
+                    Category: "ResidualCache",
+                    RootPath: sharedPath,
+                    AppName: "Youku",
+                    RiskLevel: RiskLevel.SafeWithPreview,
+                    SuggestedAction: CleanupAction.DeleteToRecycleBin,
+                    Description: "shared-b",
+                    EstimatedSizeBytes: 280L * 1024L * 1024L,
+                    Entries: new List<CleanupEntry>
+                    {
+                        new(Path.Combine(sharedPath, "b.bin"), false, 280L * 1024L * 1024L, DateTime.UtcNow, "ResidualCache")
+                    }.AsReadOnly())
+            },
+            new FastScanFinding
+            {
+                AppId = "iQIYI",
+                SizeBytes = 260L * 1024L * 1024L,
+                Category = "ResidualCache",
+                PrimaryPath = sharedPath,
+                SourcePath = sharedPath,
+                IsExactSize = true,
+                DisplaySize = "260 MB",
+                IsHotspot = true,
+                IsResidual = true,
+                OriginalBucket = new CleanupBucket(
+                    BucketId: "iqiyi-shared",
+                    Category: "ResidualCache",
+                    RootPath: sharedPath,
+                    AppName: "iQIYI",
+                    RiskLevel: RiskLevel.SafeWithPreview,
+                    SuggestedAction: CleanupAction.DeleteToRecycleBin,
+                    Description: "shared-c",
+                    EstimatedSizeBytes: 260L * 1024L * 1024L,
+                    Entries: new List<CleanupEntry>
+                    {
+                        new(Path.Combine(sharedPath, "c.bin"), false, 260L * 1024L * 1024L, DateTime.UtcNow, "ResidualCache")
+                    }.AsReadOnly())
+            }
+        };
+
+        var aggregated = BasicScanDashboardViewModel.AggregateResidualHotspots(findings);
+
+        aggregated.Should().ContainSingle();
+        aggregated[0].AppId.Should().Be("常见应用深层残留");
+        aggregated[0].PrimaryPath.Should().Be(sharedPath);
+        aggregated[0].Category.Should().Contain("Xunlei");
+        aggregated[0].Category.Should().Contain("Youku");
+        aggregated[0].Category.Should().Contain("iQIYI");
+        aggregated[0].OriginalBucket.Should().NotBeNull();
+        var bucket = aggregated[0].OriginalBucket!;
+        bucket.Entries.Should().HaveCount(3);
+        bucket.AppName.Should().Be("常见应用深层残留");
+    }
+
+    [Fact]
+    public void AggregateResidualHotspots_ShouldKeepDifferentPathsSeparatedForDifferentResidualRoots()
+    {
+        var findings = new[]
+        {
+            new FastScanFinding
+            {
+                AppId = "Xunlei",
+                SizeBytes = 300L * 1024L * 1024L,
+                Category = "ResidualCache",
+                PrimaryPath = @"C:\Users\Test\AppData\Local\Shared\CacheA",
+                SourcePath = @"C:\Users\Test\AppData\Local\Shared\CacheA",
+                IsExactSize = true,
+                DisplaySize = "300 MB",
+                IsHotspot = true,
+                IsResidual = true
+            },
+            new FastScanFinding
+            {
+                AppId = "Youku",
+                SizeBytes = 280L * 1024L * 1024L,
+                Category = "ResidualCache",
+                PrimaryPath = @"C:\Users\Test\AppData\Local\Shared\CacheB",
+                SourcePath = @"C:\Users\Test\AppData\Local\Shared\CacheB",
+                IsExactSize = true,
+                DisplaySize = "280 MB",
+                IsHotspot = true,
+                IsResidual = true
+            }
+        };
+
+        var aggregated = BasicScanDashboardViewModel.AggregateResidualHotspots(findings);
+
+        aggregated.Should().HaveCount(2);
+        aggregated.Select(item => item.PrimaryPath).Should().BeEquivalentTo(new[]
+        {
+            @"C:\Users\Test\AppData\Local\Shared\CacheA",
+            @"C:\Users\Test\AppData\Local\Shared\CacheB"
+        });
+    }
+
+    [Fact]
+    public void CollapseResidualHotspotsForDisplay_ShouldMergeAllCommonDeepResidualCardsIntoSingleCard()
+    {
+        var findings = new[]
+        {
+            new FastScanFinding
+            {
+                AppId = "常见应用深层残留",
+                SizeBytes = 300L * 1024L * 1024L,
+                Category = "候选应用: Xunlei / Youku",
+                PrimaryPath = @"C:\Users\Test\AppData\Local\Shared\CacheA",
+                SourcePath = @"C:\Users\Test\AppData\Local\Shared\CacheA",
+                IsExactSize = true,
+                DisplaySize = "300 MB",
+                IsHotspot = true,
+                IsResidual = true,
+                IsHeuristicMatch = true,
+                OriginalBucket = new CleanupBucket(
+                    BucketId: "common-residual-a",
+                    Category: "候选应用: Xunlei / Youku",
+                    RootPath: @"C:\Users\Test\AppData\Local\Shared\CacheA",
+                    AppName: "常见应用深层残留",
+                    RiskLevel: RiskLevel.SafeWithPreview,
+                    SuggestedAction: CleanupAction.DeleteToRecycleBin,
+                    Description: "A",
+                    EstimatedSizeBytes: 300L * 1024L * 1024L,
+                    Entries: new List<CleanupEntry>
+                    {
+                        new(@"C:\Users\Test\AppData\Local\Shared\CacheA\a.bin", false, 300L * 1024L * 1024L, DateTime.UtcNow, "ResidualCache")
+                    }.AsReadOnly())
+            },
+            new FastScanFinding
+            {
+                AppId = "常见应用深层残留",
+                SizeBytes = 500L * 1024L * 1024L,
+                Category = "候选应用: iQIYI / Youku",
+                PrimaryPath = @"C:\Users\Test\AppData\Local\Shared\CacheB",
+                SourcePath = @"C:\Users\Test\AppData\Local\Shared\CacheB",
+                IsExactSize = true,
+                DisplaySize = "500 MB",
+                IsHotspot = true,
+                IsResidual = true,
+                IsHeuristicMatch = true,
+                OriginalBucket = new CleanupBucket(
+                    BucketId: "common-residual-b",
+                    Category: "候选应用: iQIYI / Youku",
+                    RootPath: @"C:\Users\Test\AppData\Local\Shared\CacheB",
+                    AppName: "常见应用深层残留",
+                    RiskLevel: RiskLevel.SafeWithPreview,
+                    SuggestedAction: CleanupAction.DeleteToRecycleBin,
+                    Description: "B",
+                    EstimatedSizeBytes: 500L * 1024L * 1024L,
+                    Entries: new List<CleanupEntry>
+                    {
+                        new(@"C:\Users\Test\AppData\Local\Shared\CacheB\b.bin", false, 500L * 1024L * 1024L, DateTime.UtcNow, "ResidualCache")
+                    }.AsReadOnly())
+            }
+        };
+
+        var collapsed = BasicScanDashboardViewModel.CollapseResidualHotspotsForDisplay(findings);
+
+        collapsed.Should().ContainSingle();
+        collapsed[0].AppId.Should().Be("常见应用深层残留");
+        collapsed[0].PrimaryPath.Should().Be("已合并 2 个路径");
+        collapsed[0].Category.Should().Contain("Xunlei");
+        collapsed[0].Category.Should().Contain("Youku");
+        collapsed[0].Category.Should().Contain("iQIYI");
+        collapsed[0].TotalSizeBytes.Should().Be((300L + 500L) * 1024L * 1024L);
+    }
+
+    [Fact]
+    public void CollapseResidualHotspotsForDisplay_ShouldKeepPreciseResidualCardsAlongsideMergedCommonCard()
+    {
+        var findings = new[]
+        {
+            new FastScanFinding
+            {
+                AppId = "Quark",
+                SizeBytes = 256L * 1024L * 1024L,
+                Category = "ResidualCache",
+                PrimaryPath = @"C:\Users\Test\AppData\Local\Quark\Cache",
+                SourcePath = @"C:\Users\Test\AppData\Local\Quark\Cache",
+                IsExactSize = true,
+                DisplaySize = "256 MB",
+                IsHotspot = true,
+                IsResidual = true
+            },
+            new FastScanFinding
+            {
+                AppId = "常见应用深层残留",
+                SizeBytes = 500L * 1024L * 1024L,
+                Category = "候选应用: Xunlei / Youku",
+                PrimaryPath = @"C:\Users\Test\AppData\Local\Shared\CacheB",
+                SourcePath = @"C:\Users\Test\AppData\Local\Shared\CacheB",
+                IsExactSize = true,
+                DisplaySize = "500 MB",
+                IsHotspot = true,
+                IsResidual = true,
+                IsHeuristicMatch = true
+            },
+            new FastScanFinding
+            {
+                AppId = "常见应用深层残留",
+                SizeBytes = 300L * 1024L * 1024L,
+                Category = "候选应用: iQIYI",
+                PrimaryPath = @"C:\Users\Test\AppData\Local\Shared\CacheC",
+                SourcePath = @"C:\Users\Test\AppData\Local\Shared\CacheC",
+                IsExactSize = true,
+                DisplaySize = "300 MB",
+                IsHotspot = true,
+                IsResidual = true,
+                IsHeuristicMatch = true
+            }
+        };
+
+        var collapsed = BasicScanDashboardViewModel.CollapseResidualHotspotsForDisplay(findings);
+
+        collapsed.Should().HaveCount(2);
+        collapsed.Should().Contain(item => item.AppId == "Quark");
+        collapsed.Should().Contain(item => item.AppId == "常见应用深层残留" && item.PrimaryPath == "已合并 2 个路径");
     }
 
     [Fact]
@@ -740,6 +1298,40 @@ public sealed class BasicScanDashboardViewModelTests
     }
 
     [Fact]
+    public async Task PreviewAndExecuteBucketsAsync_ShouldUseTrustedBatchSize_ForExactFileScopedHotspot()
+    {
+        using var sandbox = new TempSandbox("vm-preview-trusted-batches");
+        string cacheRoot = sandbox.CreateDirectory("LocalAppData", "Youku", "Cache");
+        var filePaths = Enumerable.Range(0, BasicScanDashboardViewModel.CleanupExecutionBatchSize + 6)
+            .Select(index => Path.Combine(cacheRoot, $"asset-{index:D3}.bin"))
+            .ToArray();
+        var bucket = CreateBucket(cacheRoot, filePaths) with
+        {
+            AllowedRoots = filePaths
+        };
+
+        var dialog = new FakeDialogService();
+        var preview = new FakePreviewDialogService
+        {
+            SelectedEntries = bucket.Entries
+        };
+        var pipeline = new FakeCleanupPipeline();
+        var vm = CreateViewModel(dialog, pipeline, preview);
+
+        var results = await vm.PreviewAndExecuteBucketsAsync(
+            new[] { bucket },
+            "热点清理预览",
+            "Youku 热点",
+            useTrustedPreviewEntries: true);
+
+        results.Should().NotBeNull();
+        pipeline.ExecuteEntriesCalls.Should().ContainSingle();
+        pipeline.ExecuteEntriesCalls[0].Entries.Should().HaveCount(filePaths.Length);
+        pipeline.ExecuteEntriesCalls[0].AllowTrustedExactFileFastPath.Should().BeTrue();
+        vm.CleanupSummaryText.Should().Contain("共 1 批");
+    }
+
+    [Fact]
     public async Task PreviewAndExecuteBucketsAsync_ShouldShowPreparationSummaryBeforeConfirmation()
     {
         using var sandbox = new TempSandbox("vm-preview-preparation");
@@ -837,7 +1429,7 @@ public sealed class BasicScanDashboardViewModelTests
     {
         public List<(IReadOnlyList<CleanupBucket> Buckets, bool Apply)> ExecuteAsyncCalls { get; } = new();
 
-        public List<(CleanupBucket Bucket, IReadOnlyList<CleanupEntry> Entries, bool Apply)> ExecuteEntriesCalls { get; } = new();
+        public List<(CleanupBucket Bucket, IReadOnlyList<CleanupEntry> Entries, bool Apply, bool AllowTrustedExactFileFastPath)> ExecuteEntriesCalls { get; } = new();
 
         public HashSet<string> BlockedPaths { get; } = new(StringComparer.OrdinalIgnoreCase);
 
@@ -896,10 +1488,14 @@ public sealed class BasicScanDashboardViewModelTests
             return Task.FromResult(Execute(buckets, apply));
         }
 
-        public virtual BucketResult ExecuteEntries(CleanupBucket parentBucket, IEnumerable<CleanupEntry> entriesToApply, bool apply)
+        public virtual BucketResult ExecuteEntries(
+            CleanupBucket parentBucket,
+            IEnumerable<CleanupEntry> entriesToApply,
+            bool apply,
+            bool allowTrustedExactFileFastPath = false)
         {
             var entries = entriesToApply.ToList();
-            ExecuteEntriesCalls.Add((parentBucket, entries, apply));
+            ExecuteEntriesCalls.Add((parentBucket, entries, apply, allowTrustedExactFileFastPath));
             return new BucketResult(
                 parentBucket,
                 ExecutionStatus.Success,
@@ -929,11 +1525,15 @@ public sealed class BasicScanDashboardViewModelTests
         private readonly TaskCompletionSource<bool> startedTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource<bool> releaseTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public override BucketResult ExecuteEntries(CleanupBucket parentBucket, IEnumerable<CleanupEntry> entriesToApply, bool apply)
+        public override BucketResult ExecuteEntries(
+            CleanupBucket parentBucket,
+            IEnumerable<CleanupEntry> entriesToApply,
+            bool apply,
+            bool allowTrustedExactFileFastPath = false)
         {
             startedTcs.TrySetResult(true);
             releaseTcs.Task.GetAwaiter().GetResult();
-            return base.ExecuteEntries(parentBucket, entriesToApply, apply);
+            return base.ExecuteEntries(parentBucket, entriesToApply, apply, allowTrustedExactFileFastPath);
         }
 
         public async Task<bool> WaitForExecutionStartAsync(TimeSpan timeout)

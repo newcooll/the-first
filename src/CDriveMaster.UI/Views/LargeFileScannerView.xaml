@@ -110,7 +110,7 @@
                 BorderThickness="1"
                 CornerRadius="8">
             <StackPanel>
-                <TextBlock Text="🔥 热门应用缓存热点"
+                <TextBlock Text="🔥 已确认应用热点"
                            FontSize="15"
                            FontWeight="SemiBold"
                            Foreground="#FF7A3E00"
@@ -158,23 +158,6 @@
                                                     <Style.Triggers>
                                                         <DataTrigger Binding="{Binding IsHotspot}" Value="True">
                                                             <Setter Property="Foreground" Value="#FFE53935" />
-                                                        </DataTrigger>
-                                                    </Style.Triggers>
-                                                </Style>
-                                            </TextBlock.Style>
-                                        </TextBlock>
-                                        <TextBlock Margin="8,0,0,0"
-                                                   Text="[实验性支持] 检测到可疑路径，未达热点阈值"
-                                                   FontSize="11"
-                                                   FontWeight="SemiBold"
-                                                   Foreground="#FF667085"
-                                                   Visibility="Collapsed">
-                                            <TextBlock.Style>
-                                                <Style TargetType="TextBlock">
-                                                    <Setter Property="Visibility" Value="Collapsed" />
-                                                    <Style.Triggers>
-                                                        <DataTrigger Binding="{Binding IsHotspot}" Value="False">
-                                                            <Setter Property="Visibility" Value="Visible" />
                                                         </DataTrigger>
                                                     </Style.Triggers>
                                                 </Style>
@@ -325,6 +308,125 @@
 
                 <Border Height="1" Margin="0,8,0,10" Background="#FFE5E7EB" />
 
+                <TextBlock Text="🧩 常见应用深层残留"
+                           FontSize="15"
+                           FontWeight="SemiBold"
+                           Foreground="#FF4B5565"
+                           Margin="0,0,0,4" />
+                <TextBlock Text="根据大文件路径和常见缓存规律推测出的候选结果，可能存在误归类，不等同于已确认热点。"
+                           Margin="0,0,0,10"
+                           Foreground="#FF667085"
+                           TextWrapping="Wrap" />
+
+                <ItemsControl ItemsSource="{Binding CommonAppCaches}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <WrapPanel />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border Width="250"
+                                    Margin="0,0,10,10"
+                                    Padding="12"
+                                    Background="#FFFFFFFF"
+                                    BorderBrush="#FFD0D5DD"
+                                    BorderThickness="1"
+                                    CornerRadius="8">
+                                <StackPanel>
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBlock Text="🧭"
+                                                   FontSize="14"
+                                                   Margin="0,0,6,0" />
+                                        <TextBlock Text="常见应用深层残留"
+                                                   FontSize="14"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="#FF344054" />
+                                        <Border Margin="8,0,0,0"
+                                                Padding="6,2"
+                                                Background="#FFF2F4F7"
+                                                BorderBrush="#FFD0D5DD"
+                                                BorderThickness="1"
+                                                CornerRadius="4"
+                                                ToolTip="基于大文件路径、规则根路径和常见缓存特征做的模糊归因，可能存在误判。">
+                                            <TextBlock Text="模糊归因"
+                                                       FontSize="11"
+                                                       FontWeight="SemiBold"
+                                                       Foreground="#FF475467" />
+                                        </Border>
+                                    </StackPanel>
+
+                                    <TextBlock Margin="0,6,0,0"
+                                               Text="{Binding Category}"
+                                               Foreground="#FF667085"
+                                               FontSize="12"
+                                               TextWrapping="Wrap" />
+
+                                    <TextBlock Text="{Binding DisplaySize}"
+                                               FontSize="30"
+                                               Margin="0,6,0,2"
+                                               Foreground="#FF0F3E66"
+                                               FontWeight="Bold" />
+
+                                    <Grid Margin="0,2,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0"
+                                                   Text="📂 范围摘要: "
+                                                   Foreground="#FF667085"
+                                                   FontSize="12"
+                                                   VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="1"
+                                                   Text="{Binding PrimaryPath, TargetNullValue=未确认, FallbackValue=未确认}"
+                                                   Foreground="#FF667085"
+                                                   FontSize="12"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   ToolTip="{Binding PrimaryPath}"
+                                                   VerticalAlignment="Center" />
+                                    </Grid>
+
+                                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                        <Button Content="查看详情"
+                                                Padding="10,4"
+                                                Margin="0,0,8,0"
+                                                HorizontalAlignment="Left"
+                                                Command="{Binding DataContext.ViewDetailsCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                CommandParameter="{Binding .}"
+                                                ToolTip="查看归因链路详情" />
+
+                                        <Button Content="🗑️ 清理此项"
+                                                Padding="10,4"
+                                                HorizontalAlignment="Left"
+                                                Command="{Binding DataContext.CleanHotspotCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                CommandParameter="{Binding .}">
+                                            <Button.Style>
+                                                <Style TargetType="Button">
+                                                    <Setter Property="IsEnabled" Value="True" />
+                                                    <Setter Property="ToolTip" Value="当前按安全清理清单执行，不代表应用归类已完全确认" />
+                                                    <Setter Property="BorderBrush" Value="#FFDC2626" />
+                                                    <Setter Property="Foreground" Value="#FFB91C1C" />
+                                                    <Setter Property="Background" Value="#FFFEE2E2" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding OriginalBucket}" Value="{x:Null}">
+                                                            <Setter Property="IsEnabled" Value="False" />
+                                                            <Setter Property="ToolTip" Value="当前仅定位到可疑缓存，但未生成安全清理清单" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Button.Style>
+                                        </Button>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <Border Height="1" Margin="0,8,0,10" Background="#FFE5E7EB" />
+
                 <TextBlock Text="🧹 卸载残留 / 深层缓存热点"
                            FontSize="15"
                            FontWeight="SemiBold"
@@ -348,10 +450,29 @@
                                     BorderThickness="1"
                                     CornerRadius="8">
                                 <StackPanel>
-                                    <TextBlock Text="{Binding AppName, StringFormat={}{0} - 深层残留}"
+                                    <TextBlock Text="{Binding AppName}"
                                                FontSize="14"
                                                FontWeight="SemiBold"
                                                Foreground="#FF344054" />
+
+                                    <TextBlock Text="{Binding Category}"
+                                               Margin="0,4,0,0"
+                                               FontSize="12"
+                                               Foreground="#FF667085">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Visibility" Value="Visible" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding Category}" Value="ResidualCache">
+                                                        <Setter Property="Visibility" Value="Collapsed" />
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding Category}" Value="{x:Null}">
+                                                        <Setter Property="Visibility" Value="Collapsed" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
 
                                     <TextBlock Text="{Binding DisplaySize}"
                                                FontSize="28"
