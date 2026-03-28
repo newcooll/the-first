@@ -20,6 +20,9 @@
         <DataTemplate DataType="{x:Type viewmodels:BasicScanDashboardViewModel}">
             <views:LargeFileScannerView />
         </DataTemplate>
+        <DataTemplate DataType="{x:Type viewmodels:HelpManualViewModel}">
+            <views:HelpManualView />
+        </DataTemplate>
 
         <Style x:Key="SideNavButtonStyle" TargetType="Button">
             <Setter Property="Height" Value="44" />

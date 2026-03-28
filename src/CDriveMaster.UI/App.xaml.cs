@@ -54,6 +54,7 @@ public partial class App : Application
 		services.AddTransient<TempCleanupCardViewModel>();
 		services.AddTransient<BasicScanDashboardViewModel>();
 		services.AddTransient<DeepScanViewModel>();
+		services.AddTransient<HelpManualViewModel>();
 		services.AddTransient<MainViewModel>();
 
 		services.AddSingleton<MainWindow>();

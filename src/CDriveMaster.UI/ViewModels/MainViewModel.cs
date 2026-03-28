@@ -17,6 +17,7 @@ public partial class MainViewModel : ObservableObject
     private readonly SystemMaintenanceAnalysisViewModel systemMaintenanceViewModel;
     private readonly GenericCleanupViewModel genericCleanupViewModel;
     private readonly BasicScanDashboardViewModel basicScanDashboardViewModel;
+    private readonly HelpManualViewModel helpManualViewModel;
     private readonly DiagnosticExporter diagExporter;
     private readonly IDialogService dialogService;
 
@@ -29,12 +30,14 @@ public partial class MainViewModel : ObservableObject
         SystemMaintenanceAnalysisViewModel systemMaintenanceViewModel,
         GenericCleanupViewModel genericCleanupViewModel,
         BasicScanDashboardViewModel basicScanDashboardViewModel,
+        HelpManualViewModel helpManualViewModel,
         DiagnosticExporter diagExporter,
         IDialogService dialogService)
     {
         this.systemMaintenanceViewModel = systemMaintenanceViewModel;
         this.genericCleanupViewModel = genericCleanupViewModel;
         this.basicScanDashboardViewModel = basicScanDashboardViewModel;
+        this.helpManualViewModel = helpManualViewModel;
         this.diagExporter = diagExporter;
         this.dialogService = dialogService;
 
@@ -116,18 +119,7 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand]
     private void OpenHelpDocs()
     {
-        string docsPath = Path.Combine(AppContext.BaseDirectory, "docs");
-        if (Directory.Exists(docsPath))
-        {
-            OpenFolder("docs");
-            return;
-        }
-
-        Process.Start(new ProcessStartInfo
-        {
-            FileName = "https://github.com/newcooll/the-first/wiki",
-            UseShellExecute = true
-        });
+        CurrentViewModel = helpManualViewModel;
     }
 
     private static void OpenFolder(string folderName)
@@ -150,6 +142,12 @@ public partial class MainViewModel : ObservableObject
         }
 
         string normalized = version.Trim();
+        int buildMetadataIndex = normalized.IndexOf('+');
+        if (buildMetadataIndex >= 0)
+        {
+            normalized = normalized[..buildMetadataIndex];
+        }
+
         return normalized.StartsWith("v", StringComparison.OrdinalIgnoreCase)
             ? normalized
             : $"v{normalized}";
