@@ -8,149 +8,229 @@
         <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
     </UserControl.Resources>
 
-    <Grid>
+    <Grid Background="#FFF4F7FB">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,12">
-            <Button Command="{Binding AnalyzeCommand}" Width="140" Height="32" Margin="0,0,10,0">
-                <Button.Style>
-                    <Style TargetType="Button">
-                        <Setter Property="Content" Value="分析系统组件" />
-                        <Style.Triggers>
-                            <DataTrigger Binding="{Binding IsBusy}" Value="True">
-                                <Setter Property="Content" Value="正在分析..." />
-                            </DataTrigger>
-                        </Style.Triggers>
-                    </Style>
-                </Button.Style>
-            </Button>
-
-            <Button Command="{Binding OpenLogsFolderCommand}" Width="120" Height="32" Margin="0,0,10,0" Content="审计日志" />
-
-            <TextBlock Text="{Binding StatusText}" VerticalAlignment="Center" Foreground="#FF245A94" />
-        </StackPanel>
-
-        <Grid Grid.Row="1">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-            </Grid.RowDefinitions>
-
-            <Border Grid.Row="0"
-                    Padding="14"
-                    BorderBrush="#FFD9DEE5"
-                    BorderThickness="1"
-                    Background="#FFF9FBFD"
-                    CornerRadius="4">
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                    </Grid.RowDefinitions>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="170" />
-                        <ColumnDefinition Width="*" />
-                    </Grid.ColumnDefinitions>
-
-                    <TextBlock Grid.Row="0" Grid.Column="0" Text="组件存储实际大小:" Margin="0,0,0,10" />
-                    <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding ActualSizeText}" Margin="0,0,0,10" FontWeight="SemiBold" />
-
-                    <TextBlock Grid.Row="1" Grid.Column="0" Text="预计可回收空间:" Margin="0,0,0,10" />
-                    <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding EstimatedReclaimableText}" Margin="0,0,0,10" FontWeight="SemiBold" />
-
-                    <TextBlock Grid.Row="2" Grid.Column="0" Text="系统是否建议清理:" Margin="0,0,0,10" />
-                    <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding CleanupRecommended}" Margin="0,0,0,10" FontWeight="SemiBold" />
-
-                    <TextBlock Grid.Row="3" Grid.Column="0" Text="上次分析时间:" />
-                    <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding LastAnalysisTime}" FontWeight="SemiBold" />
-                </Grid>
-            </Border>
-
-            <TextBlock Grid.Row="1"
-                       Margin="0,10,0,0"
-                       Text="{Binding RiskDescription}"
-                       Foreground="DarkOrange"
-                       TextWrapping="Wrap" />
-        </Grid>
-
-        <Border Grid.Row="2"
-                Margin="0,12,0,0"
-                Padding="12"
-                BorderBrush="#FFCC4B37"
+        <Border Grid.Row="0"
+                Padding="18"
+                Background="#FFFAFCFF"
+                BorderBrush="#FFD9E4EE"
                 BorderThickness="1"
-                Background="#FFFFF1F0"
-                Visibility="{Binding HasAnalysisResult, Converter={StaticResource BooleanToVisibilityConverter}}">
-            <StackPanel>
-                <TextBlock Text="⚠️ 警告：即将调用 Windows 原生 DISM 组件清理。本操作不使用 /ResetBase，不会影响系统更新的卸载能力，但耗时较长。"
-                           Foreground="#FFB00020"
-                           FontWeight="SemiBold"
-                           TextWrapping="Wrap"
-                           Margin="0,0,0,8" />
+                CornerRadius="14">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="320" />
+                </Grid.ColumnDefinitions>
 
-                <CheckBox Content="我理解风险，同意执行系统组件清理"
-                          IsChecked="{Binding IsConfirmed, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                          Margin="0,0,0,8" />
-
-                <Button Command="{Binding CleanupCommand}"
-                        Width="220"
-                        Height="32"
-                        HorizontalAlignment="Left"
-                        IsEnabled="False"
-                        ToolTip="系统组件瘦身执行链路开发中，当前版本已熔断该入口。">
-                    <Button.Style>
-                        <Style TargetType="Button">
-                            <Setter Property="Content" Value="执行真实清理 (开发中，已熔断)" />
-                            <Style.Triggers>
-                                <DataTrigger Binding="{Binding IsBusy}" Value="True">
-                                    <Setter Property="Content" Value="执行入口已熔断" />
-                                </DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Button.Style>
-                </Button>
-            </StackPanel>
-        </Border>
-
-        <Border Grid.Row="3"
-                Margin="0,12,0,0"
-                Padding="10"
-                BorderBrush="#FFD9DEE5"
-                BorderThickness="1"
-                Background="#FFF9FBFD">
-            <Border.Style>
-                <Style TargetType="Border">
-                    <Setter Property="Visibility" Value="Visible" />
-                    <Style.Triggers>
-                        <DataTrigger Binding="{Binding CleanupResult}" Value="{x:Null}">
-                            <Setter Property="Visibility" Value="Collapsed" />
-                        </DataTrigger>
-                    </Style.Triggers>
-                </Style>
-            </Border.Style>
-
-            <StackPanel>
-                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                    <TextBlock Text="清理状态:" Margin="0,0,4,0" />
-                    <TextBlock Text="{Binding CleanupResult.Status}" Margin="0,0,12,0" FontWeight="SemiBold" />
-                    <TextBlock Text="耗时:" Margin="0,0,4,0" />
-                    <TextBlock Text="{Binding CleanupResult.Duration}" Margin="0,0,12,0" FontWeight="SemiBold" />
-                    <TextBlock Text="退出码:" Margin="0,0,4,0" />
-                    <TextBlock Text="{Binding CleanupResult.ExitCode}" FontWeight="SemiBold" />
+                <StackPanel Grid.Column="0">
+                    <TextBlock Text="常规清理工作区"
+                               FontSize="24"
+                               FontWeight="Bold"
+                               Foreground="#FF102A43" />
+                    <TextBlock Margin="0,6,0,0"
+                               Text="聚焦 WinSxS 组件存储分析、C 盘空间变化和系统级瘦身决策。"
+                               TextWrapping="Wrap"
+                               Foreground="#FF667085" />
                 </StackPanel>
 
-                <Button Command="{Binding ReAnalyzeCommand}"
-                        Width="140"
-                        Height="30"
-                        HorizontalAlignment="Left"
-                        Content="重新分析系统组件" />
+                <Border Grid.Column="1"
+                        Padding="12"
+                        Background="#FFF8FAFC"
+                        BorderBrush="#FFE2E8F0"
+                        BorderThickness="1"
+                        CornerRadius="10">
+                    <StackPanel>
+                        <TextBlock Text="当前状态"
+                                   FontSize="12"
+                                   Foreground="#FF667085" />
+                        <TextBlock Margin="0,4,0,0"
+                                   Text="{Binding StatusText}"
+                                   TextWrapping="Wrap"
+                                   Foreground="#FF102A43"
+                                   FontWeight="SemiBold" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="1"
+              Margin="0,14,0,14">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="12" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="12" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="12" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0"
+                    Padding="14"
+                    Background="#FFFFFFFF"
+                    BorderBrush="#FFE2E8F0"
+                    BorderThickness="1"
+                    CornerRadius="12">
+                <StackPanel>
+                    <TextBlock Text="C 盘可用空间" Foreground="#FF475467" FontWeight="SemiBold" />
+                    <TextBlock Margin="0,8,0,0" Text="{Binding CDriveFreeBytes, StringFormat={}{0:N0} B}" Visibility="Collapsed" />
+                    <TextBlock Margin="0,8,0,0" Text="{Binding CDriveUsageText}" FontSize="15" FontWeight="SemiBold" Foreground="#FF101828" TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+
+            <Border Grid.Column="2"
+                    Padding="14"
+                    Background="#FFFFFFFF"
+                    BorderBrush="#FFE2E8F0"
+                    BorderThickness="1"
+                    CornerRadius="12">
+                <StackPanel>
+                    <TextBlock Text="WinSxS 实际大小" Foreground="#FF475467" FontWeight="SemiBold" />
+                    <TextBlock Margin="0,8,0,0" Text="{Binding ActualSizeText}" FontSize="24" FontWeight="Bold" Foreground="#FF101828" />
+                </StackPanel>
+            </Border>
+
+            <Border Grid.Column="4"
+                    Padding="14"
+                    Background="#FFFFFFFF"
+                    BorderBrush="#FFE2E8F0"
+                    BorderThickness="1"
+                    CornerRadius="12">
+                <StackPanel>
+                    <TextBlock Text="预计可回收" Foreground="#FF475467" FontWeight="SemiBold" />
+                    <TextBlock Margin="0,8,0,0" Text="{Binding EstimatedReclaimableText}" FontSize="24" FontWeight="Bold" Foreground="#FF101828" />
+                </StackPanel>
+            </Border>
+
+            <Border Grid.Column="6"
+                    Padding="14"
+                    Background="#FFFFFFFF"
+                    BorderBrush="#FFE2E8F0"
+                    BorderThickness="1"
+                    CornerRadius="12">
+                <StackPanel>
+                    <TextBlock Text="当前建议" Foreground="#FF475467" FontWeight="SemiBold" />
+                    <TextBlock Margin="0,8,0,0" Text="{Binding CleanupRecommended}" FontSize="24" FontWeight="Bold" Foreground="#FF101828" />
+                    <TextBlock Margin="0,6,0,0" Text="{Binding LastAnalysisTime}" Foreground="#FF667085" />
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="1.4*" />
+                <ColumnDefinition Width="12" />
+                <ColumnDefinition Width="1*" />
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0"
+                    Padding="16"
+                    Background="#FFFFFFFF"
+                    BorderBrush="#FFD8E1EA"
+                    BorderThickness="1"
+                    CornerRadius="12">
+                <StackPanel>
+                    <TextBlock Text="安全边界"
+                               FontSize="16"
+                               FontWeight="SemiBold"
+                               Foreground="#FF102A43" />
+                    <TextBlock Margin="0,10,0,0"
+                               Text="{Binding SafetyBoundaryText}"
+                               TextWrapping="Wrap"
+                               Foreground="#FF0F3E66" />
+                    <TextBlock Margin="0,10,0,0"
+                               Text="{Binding CleanupImpactText}"
+                               TextWrapping="Wrap"
+                               Foreground="#FF475467" />
+                    <TextBlock Margin="0,10,0,0"
+                               Text="{Binding RiskDescription}"
+                               TextWrapping="Wrap"
+                               Foreground="#FFB54708" />
+
+                    <StackPanel Orientation="Horizontal"
+                                Margin="0,16,0,0">
+                        <Button Command="{Binding AnalyzeCommand}"
+                                Width="160"
+                                Height="38"
+                                Margin="0,0,10,0"
+                                Content="分析 WinSxS" />
+                        <Button Command="{Binding OpenLogsFolderCommand}"
+                                Width="120"
+                                Height="38"
+                                Content="审计日志" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <Border Grid.Column="2"
+                    Padding="16"
+                    Background="#FFFFF7ED"
+                    BorderBrush="#FED7AA"
+                    BorderThickness="1"
+                    CornerRadius="12">
+                <StackPanel>
+                    <TextBlock Text="是否可用"
+                               FontSize="16"
+                               FontWeight="SemiBold"
+                               Foreground="#FF9A3412" />
+                    <TextBlock Margin="0,10,0,0"
+                               Text="{Binding CleanupDecisionText}"
+                               TextWrapping="Wrap"
+                               Foreground="#FF7C2D12" />
+                    <CheckBox Margin="0,14,0,12"
+                              Content="我已理解系统瘦身只会调用安全模式 DISM 清理，并愿意执行"
+                              IsChecked="{Binding IsConfirmed, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                    <Button Command="{Binding CleanupCommand}"
+                            Width="220"
+                            Height="38"
+                            HorizontalAlignment="Left"
+                            Content="执行系统瘦身" />
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <Border Grid.Row="3"
+                Margin="0,14,0,0"
+                Padding="16"
+                Background="#FFFFFFFF"
+                BorderBrush="#FFD9DEE5"
+                BorderThickness="1"
+                CornerRadius="12">
+            <StackPanel>
+                <TextBlock Text="执行结果"
+                           FontSize="16"
+                           FontWeight="SemiBold"
+                           Foreground="#FF102A43" />
+
+                <StackPanel Margin="0,10,0,0"
+                            Visibility="{Binding CleanupResult, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="状态:" Margin="0,0,4,0" />
+                        <TextBlock Text="{Binding CleanupResult.Status}" Margin="0,0,16,0" FontWeight="SemiBold" />
+                        <TextBlock Text="耗时:" Margin="0,0,4,0" />
+                        <TextBlock Text="{Binding CleanupResult.Duration}" Margin="0,0,16,0" FontWeight="SemiBold" />
+                        <TextBlock Text="退出码:" Margin="0,0,4,0" />
+                        <TextBlock Text="{Binding CleanupResult.ExitCode}" FontWeight="SemiBold" />
+                    </StackPanel>
+
+                    <Button Margin="0,12,0,0"
+                            Command="{Binding ReAnalyzeCommand}"
+                            Width="180"
+                            Height="36"
+                            HorizontalAlignment="Left"
+                            Content="重新分析确认结果" />
+                </StackPanel>
+
+                <TextBlock Margin="0,10,0,0"
+                           Text="说明：系统瘦身只在分析明确建议时开放执行，默认不带 /ResetBase。"
+                           Foreground="#FF667085"
+                           TextWrapping="Wrap" />
             </StackPanel>
         </Border>
     </Grid>

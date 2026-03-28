@@ -14,5 +14,9 @@ public interface ICleanupPipeline
         bool apply,
         CancellationToken cancellationToken = default);
 
-    BucketResult ExecuteEntries(CleanupBucket parentBucket, IEnumerable<CleanupEntry> entriesToApply, bool apply);
+    BucketResult ExecuteEntries(
+        CleanupBucket parentBucket,
+        IEnumerable<CleanupEntry> entriesToApply,
+        bool apply,
+        bool allowTrustedExactFileFastPath = false);
 }

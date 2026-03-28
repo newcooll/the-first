@@ -47,6 +47,132 @@ public sealed class BasicScanDashboardViewModelTests
     }
 
     [Fact]
+    public void RefreshCDriveSpaceStatus_ShouldPopulateDriveSummary()
+    {
+        var vm = CreateViewModel(new FakeDialogService());
+
+        vm.RefreshCDriveSpaceStatus();
+
+        vm.CDriveUsageText.Should().NotBeNullOrWhiteSpace();
+        vm.CDriveTotalBytes.Should().BeGreaterThan(0);
+        vm.CDriveFreeBytes.Should().BeGreaterOrEqualTo(0);
+    }
+
+    [Fact]
+    public async Task ExecuteCleanSelectedCommand_ShouldExecuteSafeAutoBucketsWithoutPreview()
+    {
+        using var sandbox = new TempSandbox("vm-clean-selected-direct");
+        string cacheRoot = sandbox.CreateDirectory("LocalAppData", "Temp", "Safe");
+        string firstFile = Path.Combine(cacheRoot, "a.bin");
+        string secondFile = Path.Combine(cacheRoot, "b.bin");
+        var bucket = CreateBucket(cacheRoot, firstFile, secondFile) with
+        {
+            AllowedRoots = new[] { firstFile, secondFile }
+        };
+
+        var dialog = new FakeDialogService();
+        var preview = new FakePreviewDialogService();
+        var pipeline = new FakeCleanupPipeline();
+        var vm = CreateViewModel(dialog, pipeline, preview);
+        var group = new BasicScanGroup
+        {
+            GroupId = "safe-items",
+            Title = "安全项",
+            Description = "可自动清理"
+        };
+        group.Items.Add(new BasicScanItem
+        {
+            Id = "safe-item-1",
+            Title = "Temp Cache",
+            Description = "Safe temp files",
+            FullPath = firstFile,
+            SizeBytes = bucket.EstimatedSizeBytes,
+            RiskLevel = RiskLevel.SafeAuto,
+            ActionType = BasicScanActionType.CleanSelected,
+            IsSelectable = true,
+            IsSelected = true,
+            OriginalBucket = bucket
+        });
+        vm.ScanGroups.Add(group);
+
+        await vm.ExecuteCleanSelectedCommand.ExecuteAsync(null);
+
+        dialog.WasConfirmCalled.Should().BeTrue();
+        preview.WasShowPreviewCalled.Should().BeFalse();
+        dialog.WasShowInfoCalled.Should().BeTrue();
+        pipeline.ExecuteEntriesCalls.Should().ContainSingle();
+        pipeline.ExecuteEntriesCalls[0].Entries.Should().HaveCount(2);
+        pipeline.ExecuteEntriesCalls[0].AllowTrustedExactFileFastPath.Should().BeTrue();
+        vm.StatusText.Should().Be("清理完成");
+    }
+
+    [Fact]
+    public async Task ExecuteCleanSelectedCommand_ShouldAllowSelectedLargeFilesWithPreview()
+    {
+        using var sandbox = new TempSandbox("vm-clean-selected-large-file");
+        string rootPath = sandbox.CreateDirectory("DeepScan", "LargeFiles");
+        string filePath = Path.Combine(rootPath, "movie.mkv");
+        var bucket = CreateLargeFileBucket(filePath, 900L * 1024L * 1024L);
+
+        var dialog = new FakeDialogService();
+        var preview = new FakePreviewDialogService
+        {
+            SelectedEntries = bucket.Entries
+        };
+        var pipeline = new FakeCleanupPipeline();
+        var vm = CreateViewModel(dialog, pipeline, preview);
+        var group = new BasicScanGroup
+        {
+            GroupId = "large-file-radar",
+            Title = "大文件雷达",
+            Description = "Top 20"
+        };
+        group.Items.Add(new BasicScanItem
+        {
+            Id = "large-item-1",
+            Title = "movie.mkv",
+            Description = "大文件分析结果",
+            FullPath = filePath,
+            SizeBytes = bucket.EstimatedSizeBytes,
+            RiskLevel = RiskLevel.SafeWithPreview,
+            ActionType = BasicScanActionType.CleanSelected,
+            IsSelectable = true,
+            IsSelected = true,
+            OriginalBucket = bucket
+        });
+        vm.ScanGroups.Add(group);
+
+        vm.ExecuteCleanSelectedCommand.CanExecute(null).Should().BeTrue();
+
+        await vm.ExecuteCleanSelectedCommand.ExecuteAsync(null);
+
+        preview.WasShowPreviewCalled.Should().BeTrue();
+        pipeline.ExecuteEntriesCalls.Should().ContainSingle();
+        pipeline.ExecuteEntriesCalls[0].Entries.Should().ContainSingle(entry =>
+            string.Equals(entry.Path, filePath, StringComparison.OrdinalIgnoreCase));
+        pipeline.ExecuteEntriesCalls[0].AllowTrustedExactFileFastPath.Should().BeTrue();
+    }
+
+    [Fact]
+    public void BuildCleanupCompletionSummary_ShouldDescribeRecycleBinAsMovedNotReleased()
+    {
+        using var sandbox = new TempSandbox("vm-cleanup-summary-recycle");
+        string filePath = Path.Combine(sandbox.CreateDirectory("cache"), "a.bin");
+        var bucket = CreateLargeFileBucket(filePath, 256L * 1024L * 1024L);
+
+        string summary = BasicScanDashboardViewModel.BuildCleanupCompletionSummary(
+            new[] { bucket },
+            256L * 1024L * 1024L,
+            successCount: 1,
+            skippedCount: 0,
+            failedCount: 0);
+
+        summary.Should().Contain("已移出原位置");
+        summary.Should().Contain("回收站");
+        summary.Should().NotContain("成功释放");
+    }
+
+    [Fact]
     public void BuildReverseAttributedHotspots_ShouldMapLargeFilesToKnownAppRules()
     {
         using var sandbox = new TempSandbox("vm-reverse-hotspot");
@@ -1178,10 +1304,11 @@ public sealed class BasicScanDashboardViewModelTests
         var results = await executeTask;
         results.Should().NotBeNull();
         vm.IsIndeterminate.Should().BeFalse();
-        vm.CleanupStageText.Should().Be("清理完成");
-        vm.CleanupBatchText.Should().Contain("全部 1 批已执行完成");
+        vm.CleanupStageText.Should().Be("待后台回收");
+        vm.CleanupBatchText.Should().Contain("后台正在处理 1 批回收站回收");
         vm.CleanupProgressText.Should().Contain("执行进度 1/1");
         vm.CleanupProgressText.Should().Contain("成功 1");
+        vm.CleanupStorageImpactText.Should().Contain("不会立刻增加");
         vm.CleanupCurrentPathText.Should().BeEmpty();
     }
 
@@ -1293,7 +1420,8 @@ public sealed class BasicScanDashboardViewModelTests
         pipeline.ExecuteEntriesCalls[0].Entries.Should().HaveCount(BasicScanDashboardViewModel.CleanupExecutionBatchSize);
         pipeline.ExecuteEntriesCalls[1].Entries.Should().HaveCount(6);
         vm.CleanupSummaryText.Should().Contain("共 2 批");
-        vm.CleanupStageText.Should().Be("清理完成");
+        vm.CleanupStageText.Should().Be("待后台回收");
+        vm.CleanupStorageImpactText.Should().Contain("不会立刻增加");
         vm.CleanupProgressText.Should().Contain($"执行进度 {filePaths.Length}/{filePaths.Length}");
     }
 
@@ -1412,6 +1540,40 @@ public sealed class BasicScanDashboardViewModelTests
             EstimatedSizeBytes: entries.Sum(entry => entry.SizeBytes),
             Entries: entries.AsReadOnly(),
             AllowedRoots: new[] { rootPath });
+    }
+
+    private static CleanupBucket CreateLargeFileBucket(string filePath, long sizeBytes)
+    {
+        string? rootPath = Path.GetDirectoryName(filePath);
+        if (!string.IsNullOrWhiteSpace(rootPath))
+        {
+            Directory.CreateDirectory(rootPath);
+        }
+
+        if (!File.Exists(filePath))
+        {
+            using var stream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.Read);
+            stream.SetLength(Math.Min(sizeBytes, 1024 * 1024));
+        }
+
+        var entry = new CleanupEntry(
+            filePath,
+            false,
+            sizeBytes,
+            DateTime.UtcNow,
+            "LargeFile");
+
+        return new CleanupBucket(
+            BucketId: $"large-file:{filePath}",
+            Category: "LargeFile",
+            RootPath: rootPath ?? filePath,
+            AppName: "LargeFileRadar",
+            RiskLevel: RiskLevel.SafeWithPreview,
+            SuggestedAction: CleanupAction.DeleteToRecycleBin,
+            Description: "大文件雷达结果",
+            EstimatedSizeBytes: sizeBytes,
+            Entries: new[] { entry },
+            AllowedRoots: new[] { filePath });
     }
 
     private static List<string> BuildEntries(string prefix, int count)

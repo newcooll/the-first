@@ -20,8 +20,8 @@ public partial class BucketResultItemViewModel : ObservableObject
 
     public string RiskLevelText => source.Bucket.RiskLevel switch
     {
-        RiskLevel.SafeAuto => "安全(可自动)",
-        RiskLevel.SafeWithPreview => "安全(需预览)",
+        RiskLevel.SafeAuto => "安全（可自动）",
+        RiskLevel.SafeWithPreview => "安全（需预览）",
         RiskLevel.Blocked => "高危拦截",
         _ => source.Bucket.RiskLevel.ToString()
     };

@@ -64,7 +64,11 @@ public class CleanupPipeline : ICleanupPipeline
         return Task.Run(() => Execute(buckets, apply), cancellationToken);
     }
 
-    public BucketResult ExecuteEntries(CleanupBucket parentBucket, IEnumerable<CleanupEntry> entriesToApply, bool apply)
+    public BucketResult ExecuteEntries(
+        CleanupBucket parentBucket,
+        IEnumerable<CleanupEntry> entriesToApply,
+        bool apply,
+        bool allowTrustedExactFileFastPath = false)
     {
         var entries = entriesToApply.ToList();
         var tempBucket = new CleanupBucket(
@@ -79,7 +83,32 @@ public class CleanupPipeline : ICleanupPipeline
             Entries: entries.AsReadOnly(),
             AllowedRoots: parentBucket.AllowedRoots);
 
-        var result = Execute(new[] { tempBucket }, apply);
+        var result = apply
+            ? BuildResults(tempBucket, cleanupExecutor.Execute(new[] { tempBucket }, allowTrustedExactFileFastPath))
+            : BuildResults(tempBucket, dryRunExecutor.Execute(new[] { tempBucket }));
         return result[0];
+    }
+
+    private static IReadOnlyList<BucketResult> BuildResults(CleanupBucket bucket, IReadOnlyList<AuditLogItem> logs)
+    {
+        var finalStatus = AuditAggregator.CalculateBucketStatus(logs);
+        long reclaimedBytes = logs
+            .Where(x => x.Status == ExecutionStatus.Success)
+            .Sum(x => x.TargetSizeBytes);
+        int successCount = logs.Count(x => x.Status == ExecutionStatus.Success);
+        int failedCount = logs.Count(x => x.Status == ExecutionStatus.Failed);
+        int blockedCount = logs.Count(x => x.Status == ExecutionStatus.Blocked);
+
+        return new[]
+        {
+            new BucketResult(
+                Bucket: bucket,
+                FinalStatus: finalStatus,
+                ReclaimedSizeBytes: reclaimedBytes,
+                SuccessCount: successCount,
+                FailedCount: failedCount,
+                BlockedCount: blockedCount,
+                Logs: logs)
+        };
     }
 }

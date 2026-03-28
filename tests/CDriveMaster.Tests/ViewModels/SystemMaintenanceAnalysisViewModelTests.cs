@@ -37,6 +37,17 @@ public sealed class SystemMaintenanceAnalysisViewModelTests
     }
 
     [Fact]
+    public void Constructor_ShouldPopulateDriveSummaryAndSafetyBoundary()
+    {
+        var vm = CreateViewModel(CreateAnalyzeRunner(successRecommended: true), CreateCleanupRunner());
+
+        vm.CDriveUsageText.Should().NotBeNullOrWhiteSpace();
+        vm.SafetyBoundaryText.Should().Contain("/StartComponentCleanup");
+        vm.SafetyBoundaryText.Should().Contain("不包含 /ResetBase");
+        vm.CleanupDecisionText.Should().Contain("需先完成分析");
+    }
+
+    [Fact]
     public async Task AnalyzeAsync_WhenRecommended_ShouldUnlockCleanupGuard()
     {
         var vm = CreateViewModel(CreateAnalyzeRunner(successRecommended: true), CreateCleanupRunner());
@@ -44,6 +55,8 @@ public sealed class SystemMaintenanceAnalysisViewModelTests
         await vm.AnalyzeCommand.ExecuteAsync(null);
 
         vm.HasAnalysisResult.Should().BeTrue();
+        vm.CleanupRecommended.Should().Be("建议执行");
+        vm.CleanupDecisionText.Should().Contain("系统瘦身功能可用");
     }
 
     [Fact]
@@ -102,6 +115,7 @@ public sealed class SystemMaintenanceAnalysisViewModelTests
         vm.CleanupResult.Should().BeNull();
         vm.HasAnalysisResult.Should().BeFalse();
         vm.IsConfirmed.Should().BeFalse();
+        vm.CleanupDecisionText.Should().Contain("分析失败");
     }
 
     private static SystemMaintenanceAnalysisViewModel CreateViewModel(

@@ -9,119 +9,242 @@
         <converters:TakeItemConverter x:Key="TakeItemConverter" />
     </UserControl.Resources>
 
-    <Grid>
+    <Grid Background="#FFF4F7FB">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,10">
-            <TextBlock Text="选择应用:" VerticalAlignment="Center" Margin="0,0,8,0" />
-            <ComboBox Width="180"
-                      ItemsSource="{Binding AvailableApps}"
-                      SelectedItem="{Binding SelectedApp}"
-                      DisplayMemberPath="AppName"
-                      Margin="0,0,10,0" />
+        <Border Grid.Row="0"
+                Padding="18"
+                Background="#FFFAFCFF"
+                BorderBrush="#FFD9E4EE"
+                BorderThickness="1"
+                CornerRadius="14">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="360" />
+                </Grid.ColumnDefinitions>
 
-            <Button Command="{Binding ScanCommand}"
-                    Width="130"
-                    Height="32"
-                    Margin="0,0,10,0">
-                <Button.Style>
-                    <Style TargetType="Button">
-                        <Setter Property="Content" Value="扫描选中应用" />
-                        <Style.Triggers>
-                            <DataTrigger Binding="{Binding IsBusy}" Value="True">
-                                <Setter Property="Content" Value="正在扫描..." />
-                            </DataTrigger>
-                        </Style.Triggers>
-                    </Style>
-                </Button.Style>
-            </Button>
+                <StackPanel Grid.Column="0">
+                    <TextBlock Text="应用清理工作区"
+                               FontSize="24"
+                               FontWeight="Bold"
+                               Foreground="#FF102A43" />
+                    <TextBlock Margin="0,6,0,0"
+                               Text="按应用规则扫描、预览并执行清理。这里更适合做单应用的精细化清理。"
+                               TextWrapping="Wrap"
+                               Foreground="#FF667085" />
+                </StackPanel>
 
-            <Button Command="{Binding ApplySafeAutoCommand}"
-                    Width="170"
-                    Height="32"
-                    Margin="0,0,10,0"
-                    Background="#FFFBE9E7"
-                    Foreground="DarkRed">
-                <Button.Style>
-                    <Style TargetType="Button">
-                        <Setter Property="Content" Value="一键清理 (仅安全项)" />
-                        <Style.Triggers>
-                            <DataTrigger Binding="{Binding IsBusy}" Value="True">
-                                <Setter Property="Content" Value="正在清理..." />
-                            </DataTrigger>
-                        </Style.Triggers>
-                    </Style>
-                </Button.Style>
-            </Button>
+                <Border Grid.Column="1"
+                        Padding="12"
+                        Background="#FFF8FAFC"
+                        BorderBrush="#FFE2E8F0"
+                        BorderThickness="1"
+                        CornerRadius="10">
+                    <StackPanel>
+                        <TextBlock Text="当前状态"
+                                   FontSize="12"
+                                   Foreground="#FF667085" />
+                        <TextBlock Margin="0,4,0,0"
+                                   Text="{Binding StatusText}"
+                                   TextWrapping="Wrap"
+                                   Foreground="#FF102A43"
+                                   FontWeight="SemiBold" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </Border>
 
-            <Button Content="预览后清理 (需确认项)"
-                    Command="{Binding ReviewAndApplyCommand}"
-                    Width="180"
-                    Height="32"
-                    Margin="0,0,10,0"
-                    Background="#FFEAF4FF"
-                    Foreground="#FF1E4E79" />
+        <Grid Grid.Row="1"
+              Margin="0,14,0,14">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="1.2*" />
+                <ColumnDefinition Width="12" />
+                <ColumnDefinition Width="1*" />
+                <ColumnDefinition Width="12" />
+                <ColumnDefinition Width="1*" />
+            </Grid.ColumnDefinitions>
 
-            <TextBlock Text="{Binding StatusText}" VerticalAlignment="Center" />
-        </StackPanel>
+            <Border Grid.Column="0"
+                    Padding="14"
+                    Background="#FFFFFFFF"
+                    BorderBrush="#FFE2E8F0"
+                    BorderThickness="1"
+                    CornerRadius="12">
+                <StackPanel>
+                    <TextBlock Text="应用选择"
+                               Foreground="#FF475467"
+                               FontWeight="SemiBold" />
+                    <ComboBox Margin="0,10,0,0"
+                              Height="36"
+                              ItemsSource="{Binding AvailableApps}"
+                              SelectedItem="{Binding SelectedApp}"
+                              DisplayMemberPath="AppName" />
+                </StackPanel>
+            </Border>
 
-        <DataGrid Grid.Row="1"
-                  ItemsSource="{Binding BucketItems}"
-                  AutoGenerateColumns="False"
-                  IsReadOnly="True"
-                  CanUserAddRows="False">
-            <DataGrid.Columns>
-                <DataGridTextColumn Header="清理项" Binding="{Binding CategoryDescription}" Width="*" />
-                <DataGridTextColumn Header="风险等级" Binding="{Binding RiskLevelText}" Width="140" />
-                <DataGridTextColumn Header="预估大小" Binding="{Binding FormattedEstimatedSize}" Width="140" />
-                <DataGridTextColumn Header="分析状态" Binding="{Binding StatusText}" Width="120" />
-            </DataGrid.Columns>
+            <Border Grid.Column="2"
+                    Padding="14"
+                    Background="#FFFFFFFF"
+                    BorderBrush="#FFE2E8F0"
+                    BorderThickness="1"
+                    CornerRadius="12">
+                <StackPanel>
+                    <TextBlock Text="自动清理"
+                               Foreground="#FF166534"
+                               FontWeight="SemiBold" />
+                    <TextBlock Margin="0,8,0,0"
+                               Text="{Binding HasSafeAutoItems, StringFormat={}可自动项：{0}}"
+                               Foreground="#FF101828"
+                               FontWeight="Bold" />
+                    <TextBlock Margin="0,4,0,0"
+                               Text="只执行 SafeAuto 规则，适合低风险快速处理。"
+                               TextWrapping="Wrap"
+                               Foreground="#FF667085" />
+                </StackPanel>
+            </Border>
 
-            <DataGrid.RowDetailsTemplate>
-                <DataTemplate>
-                    <Border Margin="8,4,8,8"
-                            Padding="10"
-                            BorderBrush="#FFD5DEE8"
-                            BorderThickness="1"
-                            Background="#FFF8FBFF"
-                            CornerRadius="4">
-                        <StackPanel>
-                            <TextBlock Text="⚠️ 抽样检查 (仅显示前 5 个即将被处理的文件路径)："
-                                       FontSize="12"
-                                       Foreground="#FF667085"
-                                       Margin="0,0,0,6" />
-
-                            <ItemsControl ItemsSource="{Binding OriginalResult.Bucket.Entries, Converter={StaticResource TakeItemConverter}, ConverterParameter=5}">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <ScrollViewer HorizontalScrollBarVisibility="Auto"
-                                                      VerticalScrollBarVisibility="Disabled"
-                                                      CanContentScroll="False">
-                                            <TextBlock Text="{Binding Path}"
-                                                       TextTrimming="CharacterEllipsis"
-                                                       FontFamily="Consolas"
-                                                       FontSize="12"
-                                                       Foreground="#FF344054" />
-                                        </ScrollViewer>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </StackPanel>
-                    </Border>
-                </DataTemplate>
-            </DataGrid.RowDetailsTemplate>
-        </DataGrid>
+            <Border Grid.Column="4"
+                    Padding="14"
+                    Background="#FFFFFFFF"
+                    BorderBrush="#FFE2E8F0"
+                    BorderThickness="1"
+                    CornerRadius="12">
+                <StackPanel>
+                    <TextBlock Text="预览清理"
+                               Foreground="#FF0B6A99"
+                               FontWeight="SemiBold" />
+                    <TextBlock Margin="0,8,0,0"
+                               Text="{Binding HasSafeWithPreviewItems, StringFormat={}需预览项：{0}}"
+                               Foreground="#FF101828"
+                               FontWeight="Bold" />
+                    <TextBlock Margin="0,4,0,0"
+                               Text="先预览再执行，适合精细确认路径和边界。"
+                               TextWrapping="Wrap"
+                               Foreground="#FF667085" />
+                </StackPanel>
+            </Border>
+        </Grid>
 
         <Border Grid.Row="2"
-                Margin="0,10,0,0"
-                Padding="10"
+                Padding="16"
+                Background="#FFFFFFFF"
+                BorderBrush="#FFD8E1EA"
+                BorderThickness="1"
+                CornerRadius="12">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <StackPanel Grid.Row="0"
+                            Orientation="Horizontal"
+                            Margin="0,0,0,12">
+                    <Button Command="{Binding ScanCommand}"
+                            Width="140"
+                            Height="36"
+                            Margin="0,0,10,0">
+                        <Button.Style>
+                            <Style TargetType="Button">
+                                <Setter Property="Content" Value="扫描所选应用" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsBusy}" Value="True">
+                                        <Setter Property="Content" Value="正在扫描..." />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+
+                    <Button Command="{Binding ApplySafeAutoCommand}"
+                            Width="160"
+                            Height="36"
+                            Margin="0,0,10,0"
+                            Background="#FFFBE9E7"
+                            Foreground="#FFB42318">
+                        <Button.Style>
+                            <Style TargetType="Button">
+                                <Setter Property="Content" Value="一键清理（仅安全项）" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsBusy}" Value="True">
+                                        <Setter Property="Content" Value="正在清理..." />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+
+                    <Button Content="预览后清理"
+                            Command="{Binding ReviewAndApplyCommand}"
+                            Width="150"
+                            Height="36"
+                            Background="#FFEAF4FF"
+                            Foreground="#FF1E4E79" />
+                </StackPanel>
+
+                <DataGrid Grid.Row="1"
+                          ItemsSource="{Binding BucketItems}"
+                          AutoGenerateColumns="False"
+                          IsReadOnly="True"
+                          CanUserAddRows="False"
+                          RowDetailsVisibilityMode="VisibleWhenSelected"
+                          HeadersVisibility="Column">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="清理项" Binding="{Binding CategoryDescription}" Width="*" />
+                        <DataGridTextColumn Header="风险等级" Binding="{Binding RiskLevelText}" Width="140" />
+                        <DataGridTextColumn Header="预估大小" Binding="{Binding FormattedEstimatedSize}" Width="140" />
+                        <DataGridTextColumn Header="执行状态" Binding="{Binding StatusText}" Width="120" />
+                    </DataGrid.Columns>
+
+                    <DataGrid.RowDetailsTemplate>
+                        <DataTemplate>
+                            <Border Margin="8,4,8,8"
+                                    Padding="12"
+                                    BorderBrush="#FFD5DEE8"
+                                    BorderThickness="1"
+                                    Background="#FFF8FBFF"
+                                    CornerRadius="8">
+                                <StackPanel>
+                                    <TextBlock Text="抽样检查（仅显示前 5 个即将被处理的文件路径）"
+                                               FontSize="12"
+                                               Foreground="#FF667085"
+                                               Margin="0,0,0,6" />
+                                    <ItemsControl ItemsSource="{Binding OriginalResult.Bucket.Entries, Converter={StaticResource TakeItemConverter}, ConverterParameter=5}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                                                              VerticalScrollBarVisibility="Disabled"
+                                                              CanContentScroll="False">
+                                                    <TextBlock Text="{Binding Path}"
+                                                               TextTrimming="CharacterEllipsis"
+                                                               FontFamily="Consolas"
+                                                               FontSize="12"
+                                                               Foreground="#FF344054" />
+                                                </ScrollViewer>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </DataGrid.RowDetailsTemplate>
+                </DataGrid>
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="3"
+                Margin="0,14,0,0"
+                Padding="12"
                 BorderBrush="#FFCCD7E1"
                 BorderThickness="1"
-                Background="#FFF7FAFC">
+                Background="#FFF7FAFC"
+                CornerRadius="12">
             <Border.Style>
                 <Style TargetType="Border">
                     <Setter Property="Visibility" Value="Visible" />

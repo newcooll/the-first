@@ -41,9 +41,7 @@ public partial class MainViewModel : ObservableObject
         var informationalVersion = Assembly.GetExecutingAssembly()
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
             ?.InformationalVersion;
-        AppVersion = string.IsNullOrWhiteSpace(informationalVersion)
-            ? "v0.0.0-unknown"
-            : $"v{informationalVersion}";
+        AppVersion = NormalizeAppVersion(informationalVersion);
 
         CurrentViewModel = this.systemMaintenanceViewModel;
 
@@ -64,7 +62,7 @@ public partial class MainViewModel : ObservableObject
             string zipPath = await diagExporter.ExportAsync();
             await dialogService.ShowInfoAsync(
                 "导出成功",
-                $"诊断包已保存至桌面：{Environment.NewLine}{zipPath}{Environment.NewLine}{Environment.NewLine}请在提交反馈时附带此文件。");
+                $"诊断包已保存到桌面：{Environment.NewLine}{zipPath}{Environment.NewLine}{Environment.NewLine}请在提交反馈时附带此文件。");
 
             Process.Start(new ProcessStartInfo
             {
@@ -142,5 +140,18 @@ public partial class MainViewModel : ObservableObject
             FileName = fullPath,
             UseShellExecute = true
         });
+    }
+
+    internal static string NormalizeAppVersion(string? version)
+    {
+        if (string.IsNullOrWhiteSpace(version))
+        {
+            return "v0.0.0-unknown";
+        }
+
+        string normalized = version.Trim();
+        return normalized.StartsWith("v", StringComparison.OrdinalIgnoreCase)
+            ? normalized
+            : $"v{normalized}";
     }
 }

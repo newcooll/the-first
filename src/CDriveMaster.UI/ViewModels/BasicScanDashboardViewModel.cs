@@ -93,10 +93,22 @@ public partial class BasicScanDashboardViewModel : ObservableObject
     private string cleanupBatchText = string.Empty;
 
     [ObservableProperty]
+    private string cleanupStorageImpactText = string.Empty;
+
+    [ObservableProperty]
     private bool isCleanupVisualVisible;
 
     [ObservableProperty]
     private long totalFoundBytes;
+
+    [ObservableProperty]
+    private long cDriveFreeBytes;
+
+    [ObservableProperty]
+    private long cDriveTotalBytes;
+
+    [ObservableProperty]
+    private string cDriveUsageText = "C 盘可用空间加载中...";
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(ExecuteCleanSelectedCommand))]
@@ -122,6 +134,7 @@ public partial class BasicScanDashboardViewModel : ObservableObject
         this.auditLogExporter = auditLogExporter;
         this.dialogService = dialogService;
         this.previewService = previewService;
+        RefreshCDriveSpaceStatus();
     }
 
     [RelayCommand(CanExecute = nameof(CanScan))]
@@ -151,6 +164,7 @@ public partial class BasicScanDashboardViewModel : ObservableObject
 
         IsBusy = true;
         ResetCleanupExecutionVisuals(clearAll: true);
+        RefreshCDriveSpaceStatus();
         StatusText = scanMode switch
         {
             BasicScanMode.Fast => "正在快速扫描系统临时目录...",
@@ -204,6 +218,7 @@ public partial class BasicScanDashboardViewModel : ObservableObject
                 StatusText = "快速扫描完成，已更新系统临时缓存结果";
                 IsIndeterminate = false;
                 ProgressValue = 100;
+                RefreshCDriveSpaceStatus();
                 return;
             }
 
@@ -281,6 +296,7 @@ public partial class BasicScanDashboardViewModel : ObservableObject
                 : $"{GetScanModeLabel(scanMode)}完成，已生成 {ScanGroups.Count} 个分组";
             IsIndeterminate = false;
             ProgressValue = 100;
+            RefreshCDriveSpaceStatus();
         }
         catch (OperationCanceledException)
         {
@@ -309,6 +325,7 @@ public partial class BasicScanDashboardViewModel : ObservableObject
     private async Task ExecuteCleanSelectedAsync()
     {
         IsBusy = true;
+        RefreshCDriveSpaceStatus();
         StatusText = "正在清理已勾选安全项...";
 
         try
@@ -330,10 +347,31 @@ public partial class BasicScanDashboardViewModel : ObservableObject
                 return;
             }
 
-            var results = await PreviewAndExecuteBucketsAsync(
-                targetsToClean,
-                "安全项清理预览",
-                "已勾选安全项");
+            IReadOnlyList<BucketResult>? results;
+            if (targetsToClean.All(bucket => bucket.RiskLevel == RiskLevel.SafeAuto))
+            {
+                long estimatedBytes = targetsToClean.Sum(bucket => bucket.EstimatedSizeBytes);
+                bool confirmed = await dialogService.ConfirmAsync(
+                    "确认清理安全项",
+                    $"即将直接清理 {targetsToClean.Count} 个已勾选安全项，预计释放 {CDriveMaster.Core.Utilities.SizeFormatter.Format(estimatedBytes)}。{Environment.NewLine}{Environment.NewLine}此路径将跳过预览列表，直接按 SafeAuto 规则后台分批执行。");
+                if (!confirmed)
+                {
+                    StatusText = "已取消清理";
+                    return;
+                }
+
+                results = await ExecuteBucketsDirectAsync(targetsToClean, "已勾选安全项");
+            }
+            else
+            {
+                bool useTrustedPreviewEntries = targetsToClean.All(CanUseTrustedPreviewEntries);
+                results = await PreviewAndExecuteBucketsAsync(
+                    targetsToClean,
+                    "安全项清理预览",
+                    "已勾选安全项",
+                    CancellationToken.None,
+                    useTrustedPreviewEntries);
+            }
             if (results is null || results.Count == 0)
             {
                 return;
@@ -345,22 +383,29 @@ public partial class BasicScanDashboardViewModel : ObservableObject
                 .Count(log => log.Status == ExecutionStatus.Skipped);
             int failedCount = results.Sum(result => result.FailedCount);
 
-            long reclaimedBytes = results
+            long affectedBytes = results
                 .Where(result => result.FinalStatus == ExecutionStatus.Success || result.FinalStatus == ExecutionStatus.PartialSuccess)
                 .Sum(result => result.ReclaimedSizeBytes);
+            CleanupStorageImpactText = BuildCleanupSpaceImpactText(targetsToClean, affectedBytes);
 
             await auditLogExporter.ExportAsync("基础扫描聚合", results);
 
-            string summary =
-                $"清理完成！{Environment.NewLine}{Environment.NewLine}" +
-                $"✅ 成功释放: {CDriveMaster.Core.Utilities.SizeFormatter.Format(reclaimedBytes)}{Environment.NewLine}" +
-                $"✅ 成功删除: {successCount} 项{Environment.NewLine}" +
-                $"🛡️ 安全跳过: {skippedCount} 项 (文件正被系统或其他软件占用){Environment.NewLine}" +
-                (failedCount > 0 ? $"❌ 失败项: {failedCount} 项{Environment.NewLine}" : string.Empty) +
-                $"{Environment.NewLine}注：被占用的文件跳过属于安全机制，强删会导致系统崩溃。";
+            string summary = BuildCleanupCompletionSummary(
+                targetsToClean,
+                affectedBytes,
+                successCount,
+                skippedCount,
+                failedCount);
 
             await dialogService.ShowInfoAsync("清理完成", summary);
             StatusText = "清理完成，正在刷新...";
+            RefreshCDriveSpaceStatus();
+
+            if (Application.Current is null)
+            {
+                StatusText = "清理完成";
+                return;
+            }
 
             await ScanDashboardAsync(BasicScanMode.Fast);
         }
@@ -397,7 +442,8 @@ public partial class BasicScanDashboardViewModel : ObservableObject
         }
 
         string targetPath = item.FullPath;
-        string arguments = item.ActionType == BasicScanActionType.OpenFolder
+        bool selectFile = File.Exists(targetPath) || !Directory.Exists(targetPath);
+        string arguments = selectFile
             ? $"/select,\"{targetPath}\""
             : $"\"{targetPath}\"";
 
@@ -544,6 +590,7 @@ public partial class BasicScanDashboardViewModel : ObservableObject
         }
 
         IsBusy = true;
+        RefreshCDriveSpaceStatus();
         StatusText = $"正在清理 {finding.AppName} 热点...";
         try
         {
@@ -563,16 +610,16 @@ public partial class BasicScanDashboardViewModel : ObservableObject
                 .SelectMany(result => result.Logs)
                 .Count(log => log.Status == ExecutionStatus.Skipped);
             int failedCount = results.Sum(result => result.FailedCount);
-            long reclaimedBytes = results.Sum(result => result.ReclaimedSizeBytes);
+            long affectedBytes = results.Sum(result => result.ReclaimedSizeBytes);
+            CleanupStorageImpactText = BuildCleanupSpaceImpactText(new[] { finding.OriginalBucket }, affectedBytes);
             await auditLogExporter.ExportAsync(finding.AppName, results);
 
-            string summary =
-                $"清理完成！{Environment.NewLine}{Environment.NewLine}" +
-                $"✅ 成功释放: {CDriveMaster.Core.Utilities.SizeFormatter.Format(reclaimedBytes)}{Environment.NewLine}" +
-                $"✅ 成功删除: {successCount} 项{Environment.NewLine}" +
-                $"🛡️ 安全跳过: {skippedCount} 项 (文件正被系统或其他软件占用){Environment.NewLine}" +
-                (failedCount > 0 ? $"❌ 失败项: {failedCount} 项{Environment.NewLine}" : string.Empty) +
-                $"{Environment.NewLine}注：被占用的文件跳过属于安全机制，强删会导致系统崩溃。";
+            string summary = BuildCleanupCompletionSummary(
+                new[] { finding.OriginalBucket },
+                affectedBytes,
+                successCount,
+                skippedCount,
+                failedCount);
 
             await dialogService.ShowInfoAsync(
                 "清理完成",
@@ -591,6 +638,7 @@ public partial class BasicScanDashboardViewModel : ObservableObject
 
             RefreshDashboardTotals();
             RecalculateSelectionSummaryImmediate();
+            RefreshCDriveSpaceStatus();
             StatusText = fullyCleaned
                 ? $"{finding.AppName} 热点已清理"
                 : $"{finding.AppName} 热点已部分清理";
@@ -623,6 +671,7 @@ public partial class BasicScanDashboardViewModel : ObservableObject
         long candidateBytes = previewCandidates.Sum(item => item.Entry.SizeBytes);
 
         StatusText = $"正在准备 {targetLabel} 清理清单...";
+        RefreshCDriveSpaceStatus();
         CleanupStageText = "准备清单";
         CleanupSummaryText = $"正在校验 {candidateCount} 个候选条目，约 {CDriveMaster.Core.Utilities.SizeFormatter.Format(candidateBytes)}";
         CleanupBatchText = "正在执行边界校验与安全过滤";
@@ -808,11 +857,17 @@ public partial class BasicScanDashboardViewModel : ObservableObject
                     currentBatchEntryCount: batchIndex + 1 < workBatches.Count
                         ? workBatches[batchIndex + 1].Entries.Count
                         : 0);
+                RefreshCDriveSpaceStatus();
             }
 
-            CleanupStageText = "清理完成";
-            CleanupBatchText = $"全部 {workBatches.Count} 批已执行完成";
+            bool usesRecycleBin = UsesRecycleBin(targetBuckets);
+            CleanupStageText = usesRecycleBin ? "待后台回收" : "清理完成";
+            CleanupBatchText = usesRecycleBin
+                ? $"原位置已清空，后台正在处理 {workBatches.Count} 批回收站回收"
+                : $"全部 {workBatches.Count} 批已执行完成";
             CleanupCurrentPathText = string.Empty;
+            CleanupStorageImpactText = BuildCleanupSpaceImpactText(targetBuckets, selectedBytes);
+            RefreshCDriveSpaceStatus();
             return AggregateBucketResults(targetBuckets, entryResults);
         }
         finally
@@ -959,6 +1014,7 @@ public partial class BasicScanDashboardViewModel : ObservableObject
             CleanupStageText = string.Empty;
             CleanupSummaryText = string.Empty;
             CleanupBatchText = string.Empty;
+            CleanupStorageImpactText = string.Empty;
             IsCleanupVisualVisible = false;
         }
     }
@@ -988,6 +1044,167 @@ public partial class BasicScanDashboardViewModel : ObservableObject
         CleanupCurrentPathText = string.IsNullOrWhiteSpace(currentPath)
             ? string.Empty
             : $"当前处理: {currentPath}";
+    }
+
+    internal void RefreshCDriveSpaceStatus()
+    {
+        var snapshot = ReadDriveSpace(GetSystemDriveRoot());
+        CDriveFreeBytes = snapshot.FreeBytes;
+        CDriveTotalBytes = snapshot.TotalBytes;
+        if (snapshot.TotalBytes <= 0)
+        {
+            CDriveUsageText = $"{snapshot.DriveLabel} 空间信息不可用";
+            return;
+        }
+
+        long usedBytes = Math.Max(0, snapshot.TotalBytes - snapshot.FreeBytes);
+        double freePercent = snapshot.TotalBytes == 0
+            ? 0
+            : snapshot.FreeBytes * 100d / snapshot.TotalBytes;
+        CDriveUsageText =
+            $"{snapshot.DriveLabel} 可用 {CDriveMaster.Core.Utilities.SizeFormatter.Format(snapshot.FreeBytes)} / " +
+            $"总计 {CDriveMaster.Core.Utilities.SizeFormatter.Format(snapshot.TotalBytes)} | " +
+            $"已用 {CDriveMaster.Core.Utilities.SizeFormatter.Format(usedBytes)} | 可用率 {freePercent:F1}%";
+    }
+
+    internal static DriveSpaceSnapshot ReadDriveSpace(string? driveRoot)
+    {
+        if (string.IsNullOrWhiteSpace(driveRoot))
+        {
+            return new DriveSpaceSnapshot("C 盘", 0, 0);
+        }
+
+        try
+        {
+            var drive = new DriveInfo(driveRoot);
+            string label = string.IsNullOrWhiteSpace(drive.Name)
+                ? "C 盘"
+                : drive.Name.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            return new DriveSpaceSnapshot(label, drive.AvailableFreeSpace, drive.TotalSize);
+        }
+        catch
+        {
+            string label = driveRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            return new DriveSpaceSnapshot(string.IsNullOrWhiteSpace(label) ? "C 盘" : label, 0, 0);
+        }
+    }
+
+    internal async Task<IReadOnlyList<BucketResult>?> ExecuteBucketsDirectAsync(
+        IReadOnlyList<CleanupBucket> targetBuckets,
+        string targetLabel,
+        CancellationToken cancellationToken = default)
+    {
+        var workItems = targetBuckets
+            .SelectMany(bucket => bucket.Entries.Select(entry => new CleanupExecutionWorkItem(bucket, entry)))
+            .GroupBy(item => item.Entry.Path, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .ToList();
+        if (workItems.Count == 0)
+        {
+            StatusText = $"{targetLabel}没有可执行条目";
+            return null;
+        }
+
+        long selectedBytes = workItems.Sum(item => item.Entry.SizeBytes);
+        StatusText = $"正在直接执行 {targetLabel}...";
+        CleanupStageText = "快速执行";
+        CleanupSummaryText = $"已选择 {workItems.Count} 个条目，预计释放 {CDriveMaster.Core.Utilities.SizeFormatter.Format(selectedBytes)}";
+        IsCleanupVisualVisible = true;
+        IsIndeterminate = false;
+        ProgressValue = 0;
+
+        var workBatches = workItems
+            .GroupBy(item => item.Bucket.BucketId, StringComparer.OrdinalIgnoreCase)
+            .SelectMany(group =>
+            {
+                var bucket = group.First().Bucket;
+                int batchSize = CanUseTrustedPreviewEntries(bucket)
+                    ? TrustedCleanupExecutionBatchSize
+                    : CleanupExecutionBatchSize;
+
+                return group
+                    .Chunk(batchSize)
+                    .Select(chunk => new CleanupExecutionBatch(
+                        bucket,
+                        chunk.Select(item => item.Entry).ToList().AsReadOnly()));
+            })
+            .ToList();
+
+        UpdateCleanupExecutionVisuals(
+            processedCount: 0,
+            totalCount: workItems.Count,
+            successCount: 0,
+            skippedCount: 0,
+            blockedCount: 0,
+            failedCount: 0,
+            currentPath: workItems[0].Entry.Path,
+            currentBatchNumber: workBatches.Count > 0 ? 1 : 0,
+            totalBatchCount: workBatches.Count,
+            currentBatchEntryCount: workBatches.Count > 0 ? workBatches[0].Entries.Count : 0);
+        await Task.Yield();
+
+        var entryResults = new List<BucketResult>(workBatches.Count);
+        int processedCount = 0;
+        int successCount = 0;
+        int skippedCount = 0;
+        int blockedCountExecution = 0;
+        int failedCount = 0;
+
+        for (int batchIndex = 0; batchIndex < workBatches.Count; batchIndex++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var batch = workBatches[batchIndex];
+            bool allowTrustedExactFileFastPath = CanUseTrustedPreviewEntries(batch.Bucket);
+            var result = await Task.Run(
+                () => cleanupPipeline.ExecuteEntries(
+                    batch.Bucket,
+                    batch.Entries,
+                    apply: true,
+                    allowTrustedExactFileFastPath: allowTrustedExactFileFastPath),
+                cancellationToken);
+            entryResults.Add(result);
+
+            processedCount += result.Logs.Count;
+            successCount += result.Logs.Count(log => log.Status == ExecutionStatus.Success);
+            skippedCount += result.Logs.Count(log => log.Status == ExecutionStatus.Skipped);
+            blockedCountExecution += result.Logs.Count(log => log.Status == ExecutionStatus.Blocked);
+            failedCount += result.Logs.Count(log => log.Status == ExecutionStatus.Failed);
+
+            string? nextPath = batchIndex + 1 < workBatches.Count
+                ? workBatches[batchIndex + 1].Entries[0].Path
+                : null;
+
+            UpdateCleanupExecutionVisuals(
+                processedCount,
+                workItems.Count,
+                successCount,
+                skippedCount,
+                blockedCountExecution,
+                failedCount,
+                nextPath,
+                currentBatchNumber: Math.Min(batchIndex + 2, workBatches.Count),
+                totalBatchCount: workBatches.Count,
+                currentBatchEntryCount: batchIndex + 1 < workBatches.Count
+                    ? workBatches[batchIndex + 1].Entries.Count
+                    : 0);
+            RefreshCDriveSpaceStatus();
+        }
+
+        bool usesRecycleBin = UsesRecycleBin(targetBuckets);
+        CleanupStageText = usesRecycleBin ? "待后台回收" : "清理完成";
+        CleanupBatchText = usesRecycleBin
+            ? $"原位置已清空，后台正在处理 {workBatches.Count} 批回收站回收"
+            : $"全部 {workBatches.Count} 批已执行完成";
+        CleanupCurrentPathText = string.Empty;
+        CleanupStorageImpactText = BuildCleanupSpaceImpactText(targetBuckets, selectedBytes);
+        RefreshCDriveSpaceStatus();
+        return AggregateBucketResults(targetBuckets, entryResults);
+    }
+
+    private static string GetSystemDriveRoot()
+    {
+        string root = Path.GetPathRoot(Environment.SystemDirectory) ?? @"C:\";
+        return string.IsNullOrWhiteSpace(root) ? @"C:\" : root;
     }
 
     private static IReadOnlyList<BucketResult> AggregateBucketResults(
@@ -1025,6 +1242,45 @@ public partial class BasicScanDashboardViewModel : ObservableObject
         return aggregated.AsReadOnly();
     }
 
+    internal static string BuildCleanupCompletionSummary(
+        IReadOnlyList<CleanupBucket> targetBuckets,
+        long affectedBytes,
+        int successCount,
+        int skippedCount,
+        int failedCount)
+    {
+        bool usesRecycleBin = UsesRecycleBin(targetBuckets);
+        string quantityLabel = usesRecycleBin ? "已移出原位置" : "成功释放";
+        string followupTip = usesRecycleBin
+            ? "提示：文件已进入回收站或后台回收队列，C 盘可用空间通常不会立刻增加；清空回收站后才会真实释放。"
+            : "提示：被占用的文件跳过属于安全机制，强删会导致系统崩溃。";
+
+        return
+            $"清理完成！{Environment.NewLine}{Environment.NewLine}" +
+            $"✅ {quantityLabel}: {CDriveMaster.Core.Utilities.SizeFormatter.Format(affectedBytes)}{Environment.NewLine}" +
+            $"✅ 成功删除: {successCount} 项{Environment.NewLine}" +
+            (usesRecycleBin ? $"♻️ 删除方式: 已送入回收站或后台回收队列{Environment.NewLine}" : string.Empty) +
+            $"🛡️ 安全跳过: {skippedCount} 项 (文件正被系统或其他软件占用){Environment.NewLine}" +
+            (failedCount > 0 ? $"❌ 失败项: {failedCount} 项{Environment.NewLine}" : string.Empty) +
+            $"{Environment.NewLine}{followupTip}";
+    }
+
+    internal static string BuildCleanupSpaceImpactText(IReadOnlyList<CleanupBucket> targetBuckets, long affectedBytes)
+    {
+        if (!UsesRecycleBin(targetBuckets))
+        {
+            return $"本次应已真实释放 {CDriveMaster.Core.Utilities.SizeFormatter.Format(affectedBytes)}，C 盘可用空间会随刷新变化。";
+        }
+
+        return $"本次已将 {CDriveMaster.Core.Utilities.SizeFormatter.Format(affectedBytes)} 文件移出原位置，并送入回收站或后台回收队列；C 盘可用空间通常不会立刻增加。";
+    }
+
+    private static bool UsesRecycleBin(IReadOnlyList<CleanupBucket> targetBuckets)
+    {
+        return targetBuckets.Count > 0 &&
+               targetBuckets.All(bucket => bucket.SuggestedAction == CleanupAction.DeleteToRecycleBin);
+    }
+
     private sealed record CleanupExecutionWorkItem(CleanupBucket Bucket, CleanupEntry Entry);
     private sealed record CleanupExecutionBatch(CleanupBucket Bucket, IReadOnlyList<CleanupEntry> Entries);
     private sealed record PreviewEntryContext(CleanupBucket Bucket, CleanupEntry Entry);
@@ -1036,6 +1292,7 @@ public partial class BasicScanDashboardViewModel : ObservableObject
         string CurrentPath,
         string CurrentAppName);
     private sealed record PreviewPreparationPlan(IReadOnlyList<CleanupEntry> PreviewableEntries, int BlockedCount);
+    internal sealed record DriveSpaceSnapshot(string DriveLabel, long FreeBytes, long TotalBytes);
 
     private bool CanScan() => !IsBusy;
 
@@ -1061,7 +1318,30 @@ public partial class BasicScanDashboardViewModel : ObservableObject
         return selectedItems.All(item =>
             item.OriginalBucket is not null &&
             item.ActionType == BasicScanActionType.CleanSelected &&
-            item.RiskLevel == RiskLevel.SafeAuto);
+            item.RiskLevel is RiskLevel.SafeAuto or RiskLevel.SafeWithPreview);
+    }
+
+    private static CleanupBucket BuildLargeFileCleanupBucket(LargeFileItem file)
+    {
+        string rootPath = Path.GetDirectoryName(file.FilePath) ?? file.FilePath;
+        var entry = new CleanupEntry(
+            file.FilePath,
+            false,
+            file.SizeBytes,
+            file.LastWriteTime,
+            "LargeFile");
+
+        return new CleanupBucket(
+            BucketId: $"large-file:{file.FilePath}",
+            Category: "LargeFile",
+            RootPath: rootPath,
+            AppName: "LargeFileRadar",
+            RiskLevel: RiskLevel.SafeWithPreview,
+            SuggestedAction: CleanupAction.DeleteToRecycleBin,
+            Description: "大文件雷达结果",
+            EstimatedSizeBytes: file.SizeBytes,
+            Entries: new[] { entry },
+            AllowedRoots: new[] { file.FilePath });
     }
 
     private IReadOnlyList<CleanupBucket> GetSystemTempBuckets(IReadOnlyList<GenericRuleProvider> providers)
@@ -1296,10 +1576,11 @@ public partial class BasicScanDashboardViewModel : ObservableObject
 
         foreach (var file in topFiles.Take(LargeFileDisplayCount))
         {
+            var bucket = BuildLargeFileCleanupBucket(file);
             var recommendation = RecommendationEngine.GenerateRecommendation(
                 file.FilePath,
                 RiskLevel.SafeWithPreview,
-                BasicScanActionType.OpenFolder);
+                BasicScanActionType.CleanSelected);
 
             largeFileGroup.Items.Add(new BasicScanItem
             {
@@ -1309,10 +1590,10 @@ public partial class BasicScanDashboardViewModel : ObservableObject
                 FullPath = file.FilePath,
                 SizeBytes = file.SizeBytes,
                 RiskLevel = RiskLevel.SafeWithPreview,
-                ActionType = BasicScanActionType.OpenFolder,
+                ActionType = BasicScanActionType.CleanSelected,
                 IsSelectable = true,
                 IsSelected = false,
-                OriginalBucket = null,
+                OriginalBucket = bucket,
                 Recommendation = recommendation
             });
         }

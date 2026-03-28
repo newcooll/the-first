@@ -424,7 +424,11 @@ public sealed class GenericCleanupViewModelTests
             return Task.FromResult(Execute(buckets, apply));
         }
 
-        public BucketResult ExecuteEntries(CleanupBucket parentBucket, IEnumerable<CleanupEntry> entriesToApply, bool apply)
+        public BucketResult ExecuteEntries(
+            CleanupBucket parentBucket,
+            IEnumerable<CleanupEntry> entriesToApply,
+            bool apply,
+            bool allowTrustedExactFileFastPath = false)
         {
             var selected = entriesToApply.ToList();
             WasExecuteEntriesCalled = true;

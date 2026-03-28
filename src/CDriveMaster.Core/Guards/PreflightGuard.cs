@@ -19,6 +19,42 @@ public class PreflightGuard
 
     public PreflightResult CheckPath(string targetPath, IReadOnlyList<string>? allowedRoots = null)
     {
+        return CheckPathCore(targetPath, isDirectory: null, allowedRoots, allowExactFileFastPass: false, fastPassReason: null);
+    }
+
+    public PreflightResult CheckPathForPreview(
+        string targetPath,
+        bool isDirectory,
+        IReadOnlyList<string>? allowedRoots = null)
+    {
+        return CheckPathCore(
+            targetPath,
+            isDirectory,
+            allowedRoots,
+            allowExactFileFastPass: true,
+            fastPassReason: "Preview fast-pass exact file boundary.");
+    }
+
+    public PreflightResult CheckPathForExecution(
+        string targetPath,
+        bool isDirectory,
+        IReadOnlyList<string>? allowedRoots = null)
+    {
+        return CheckPathCore(
+            targetPath,
+            isDirectory,
+            allowedRoots,
+            allowExactFileFastPass: true,
+            fastPassReason: "Execution fast-pass exact file boundary.");
+    }
+
+    private PreflightResult CheckPathCore(
+        string targetPath,
+        bool? isDirectory,
+        IReadOnlyList<string>? allowedRoots,
+        bool allowExactFileFastPass,
+        string? fastPassReason)
+    {
         if (string.IsNullOrWhiteSpace(targetPath))
         {
             return new PreflightResult(false, true, "Target path is empty.");
@@ -27,11 +63,12 @@ public class PreflightGuard
         try
         {
             var normalizedPath = Path.GetFullPath(targetPath);
+            string trimmedPath = normalizedPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
             var rootPath = Path.GetPathRoot(normalizedPath);
             if (!string.IsNullOrWhiteSpace(rootPath) &&
                 string.Equals(
-                    normalizedPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                    trimmedPath,
                     rootPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
                     StringComparison.OrdinalIgnoreCase))
             {
@@ -55,6 +92,14 @@ public class PreflightGuard
             if (normalizedAllowedRoots.Count > 0 && !IsWithinAllowedRoots(normalizedPath, normalizedAllowedRoots))
             {
                 return new PreflightResult(false, true, "Target is outside the rule-approved cleanup boundary.");
+            }
+
+            if (allowExactFileFastPass
+                && isDirectory == false
+                && normalizedAllowedRoots.Count > 0
+                && normalizedAllowedRoots.Any(root => string.Equals(root, trimmedPath, StringComparison.OrdinalIgnoreCase)))
+            {
+                return new PreflightResult(true, false, fastPassReason ?? "Exact file boundary fast-pass.");
             }
 
             var entry = FsEntry.Resolve(targetPath);
@@ -69,67 +114,6 @@ public class PreflightGuard
             }
 
             return new PreflightResult(true, false, "Passed");
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            return new PreflightResult(false, true, ex.Message);
-        }
-        catch (IOException ex)
-        {
-            return new PreflightResult(false, true, ex.Message);
-        }
-    }
-
-    public PreflightResult CheckPathForPreview(
-        string targetPath,
-        bool isDirectory,
-        IReadOnlyList<string>? allowedRoots = null)
-    {
-        if (string.IsNullOrWhiteSpace(targetPath))
-        {
-            return new PreflightResult(false, true, "Target path is empty.");
-        }
-
-        try
-        {
-            var normalizedPath = Path.GetFullPath(targetPath);
-
-            var rootPath = Path.GetPathRoot(normalizedPath);
-            if (!string.IsNullOrWhiteSpace(rootPath) &&
-                string.Equals(
-                    normalizedPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-                    rootPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                return new PreflightResult(false, true, "Target is a drive root. Blocked.");
-            }
-
-            foreach (var protectedPath in protectedPrefixes)
-            {
-                if (string.IsNullOrWhiteSpace(protectedPath))
-                {
-                    continue;
-                }
-
-                if (normalizedPath.StartsWith(protectedPath, StringComparison.OrdinalIgnoreCase))
-                {
-                    return new PreflightResult(false, true, "Target is within a protected system directory.");
-                }
-            }
-
-            var normalizedAllowedRoots = NormalizeAllowedRoots(allowedRoots);
-            if (normalizedAllowedRoots.Count > 0 && !IsWithinAllowedRoots(normalizedPath, normalizedAllowedRoots))
-            {
-                return new PreflightResult(false, true, "Target is outside the rule-approved cleanup boundary.");
-            }
-
-            if (!isDirectory && normalizedAllowedRoots.Count > 0 &&
-                normalizedAllowedRoots.Any(root => string.Equals(root, normalizedPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), StringComparison.OrdinalIgnoreCase)))
-            {
-                return new PreflightResult(true, false, "Preview fast-pass exact file boundary.");
-            }
-
-            return CheckPath(targetPath, allowedRoots);
         }
         catch (UnauthorizedAccessException ex)
         {

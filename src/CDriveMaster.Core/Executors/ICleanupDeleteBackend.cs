@@ -5,7 +5,8 @@ namespace CDriveMaster.Core.Executors;
 public sealed record CleanupDeleteResult(
     string Path,
     ExecutionStatus Status,
-    string? ErrorMessage = null);
+    string? ErrorMessage = null,
+    string? DetailMessage = null);
 
 public interface ICleanupDeleteBackend
 {

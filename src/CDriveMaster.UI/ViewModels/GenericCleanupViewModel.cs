@@ -83,7 +83,9 @@ public partial class GenericCleanupViewModel : ObservableObject
     {
         var selectedProvider = SelectedApp;
         if (selectedProvider is null)
+        {
             return;
+        }
 
         bool showNoDataInfo = false;
 
@@ -143,7 +145,7 @@ public partial class GenericCleanupViewModel : ObservableObject
         {
             await dialogService.ShowInfoAsync(
                 "扫描完成",
-                $"未在 {selectedProvider.AppName} 中发现需要清理的冗余文件。\n\n原因可能是：\n1. 缓存已被清理\n2. 软件未安装在默认路径\n3. 产生的数据极小");
+                $"未在 {selectedProvider.AppName} 中发现需要清理的冗余文件。\n\n可能原因：\n1. 缓存已被清理\n2. 软件未安装在默认路径\n3. 当前产生的数据较少");
         }
     }
 
@@ -162,7 +164,7 @@ public partial class GenericCleanupViewModel : ObservableObject
 
         if (targets.Count == 0)
         {
-            await dialogService.ShowInfoAsync("无可执行项", "当前没有可执行的 SafeAuto 项目。请先扫描或检查状态。");
+            await dialogService.ShowInfoAsync("无可执行项", "当前没有可执行的 SafeAuto 项目，请先扫描或检查状态。");
             return;
         }
 

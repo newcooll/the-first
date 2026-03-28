@@ -32,7 +32,7 @@ public partial class ExecutionSummaryViewModel : ObservableObject
 
         long reclaimedBytes = list.Sum(x => x.ReclaimedSizeBytes);
         ReclaimedSizeText = FormatBytes(reclaimedBytes);
-        SummaryMessage = $"执行完成: 成功 {SuccessCount} 项, 失败 {FailedCount} 项, 其他 {SkippedCount} 项";
+        SummaryMessage = $"执行完成：成功 {SuccessCount} 项，失败 {FailedCount} 项，其他 {SkippedCount} 项";
     }
 
     private static string FormatBytes(long bytes)

@@ -111,6 +111,84 @@ public sealed class CleanupExecutorTests
     }
 
     [Fact]
+    public void Execute_WithTrustedExactFileBoundary_ShouldSkipHeavyFilesystemProbe()
+    {
+        using var sandbox = new TempSandbox("cleanup-executor-fastpath");
+        string filePath = Path.Combine(sandbox.RootPath, "cache", "missing.tmp");
+        var backend = new FakeDeleteBackend();
+        var bucket = new CleanupBucket(
+            BucketId: "bucket-fastpath",
+            Category: "Cache",
+            RootPath: Path.GetDirectoryName(filePath)!,
+            AppName: "Youku",
+            RiskLevel: RiskLevel.SafeWithPreview,
+            SuggestedAction: CleanupAction.DeleteToRecycleBin,
+            Description: "fast path test",
+            EstimatedSizeBytes: 7,
+            Entries: new[]
+            {
+                new CleanupEntry(filePath, false, 7, DateTime.UtcNow, "Cache")
+            },
+            AllowedRoots: new[] { filePath });
+
+        var executor = new CleanupExecutor(new PreflightGuard(), "job-fastpath", backend);
+
+        var logs = executor.Execute(new[] { bucket }, allowTrustedExactFileFastPath: true);
+
+        logs.Should().ContainSingle();
+        logs[0].Status.Should().Be(ExecutionStatus.Success);
+        logs[0].Reason.Should().Be("Passed");
+        backend.BatchCalls.Should().ContainSingle();
+        backend.BatchCalls[0].entries.Should().ContainSingle(entry => entry.Path == filePath);
+    }
+
+    [Fact]
+    public void Execute_WithTrustedExactFileBoundary_ShouldCollapseFullyCoveredDirectoryIntoSingleDeleteOperation()
+    {
+        using var sandbox = new TempSandbox("cleanup-executor-collapse");
+        string cacheRoot = sandbox.CreateDirectory("cache", "leaf");
+        string firstFile = sandbox.CreateFile(Path.Combine("cache", "leaf", "a.tmp"), "a");
+        string secondFile = sandbox.CreateFile(Path.Combine("cache", "leaf", "b.tmp"), "b");
+        string thirdFile = sandbox.CreateFile(Path.Combine("cache", "leaf", "c.tmp"), "c");
+        string fourthFile = sandbox.CreateFile(Path.Combine("cache", "leaf", "d.tmp"), "d");
+        string fifthFile = sandbox.CreateFile(Path.Combine("cache", "leaf", "e.tmp"), "e");
+        string sixthFile = sandbox.CreateFile(Path.Combine("cache", "leaf", "f.tmp"), "f");
+        string seventhFile = sandbox.CreateFile(Path.Combine("cache", "leaf", "g.tmp"), "g");
+        string eighthFile = sandbox.CreateFile(Path.Combine("cache", "leaf", "h.tmp"), "h");
+        var backend = new FakeDeleteBackend();
+        var entries = new[]
+        {
+            firstFile, secondFile, thirdFile, fourthFile,
+            fifthFile, sixthFile, seventhFile, eighthFile
+        }
+            .Select(path => new CleanupEntry(path, false, 1, DateTime.UtcNow, "Cache"))
+            .ToArray();
+
+        var bucket = new CleanupBucket(
+            BucketId: "bucket-collapse",
+            Category: "Cache",
+            RootPath: cacheRoot,
+            AppName: "Youku",
+            RiskLevel: RiskLevel.SafeWithPreview,
+            SuggestedAction: CleanupAction.DeleteToRecycleBin,
+            Description: "collapse test",
+            EstimatedSizeBytes: entries.Length,
+            Entries: entries,
+            AllowedRoots: entries.Select(entry => entry.Path).ToArray());
+
+        var executor = new CleanupExecutor(new PreflightGuard(), "job-collapse", backend);
+
+        var logs = executor.Execute(new[] { bucket }, allowTrustedExactFileFastPath: true);
+
+        logs.Should().HaveCount(entries.Length);
+        logs.Should().OnlyContain(log => log.Status == ExecutionStatus.Success);
+        backend.BatchCalls.Should().ContainSingle();
+        backend.BatchCalls[0].entries.Should().ContainSingle();
+        backend.BatchCalls[0].entries[0].IsDirectory.Should().BeTrue();
+        backend.BatchCalls[0].entries[0].Path.Should().Be(cacheRoot);
+    }
+
+    [Fact]
     public void Execute_WhenFileIsLocked_ShouldReportSkippedAndContinueOthers()
     {
         if (!OperatingSystem.IsWindows())
@@ -152,6 +230,30 @@ public sealed class CleanupExecutorTests
 
         File.Exists(lockedFilePath).Should().BeTrue();
         File.Exists(normalFilePath).Should().BeFalse();
+    }
+
+    [Fact]
+    public void DeleteMany_WhenDeletingDirectoryToRecycleBin_ShouldStageDirectoryAndReturnImmediately()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var sandbox = new TempSandbox("cleanup-backend-stage");
+        string cacheRoot = sandbox.CreateDirectory("cache", "leaf");
+        _ = sandbox.CreateFile(Path.Combine("cache", "leaf", "a.tmp"), "a");
+        _ = sandbox.CreateFile(Path.Combine("cache", "leaf", "b.tmp"), "b");
+
+        var backend = new WindowsCleanupDeleteBackend();
+        var entry = new CleanupEntry(cacheRoot, true, 2, DateTime.UtcNow, "Cache");
+
+        var results = backend.DeleteMany(new[] { entry }, CleanupAction.DeleteToRecycleBin);
+
+        results.Should().ContainSingle();
+        results[0].Status.Should().Be(ExecutionStatus.Success);
+        results[0].DetailMessage.Should().Be("Moved to pending-delete queue; recycle bin cleanup continues in background.");
+        Directory.Exists(cacheRoot).Should().BeFalse();
     }
 
     private sealed class FakeDeleteBackend : ICleanupDeleteBackend
