@@ -26,17 +26,21 @@ jobs:
         run: dotnet restore .\CDriveMaster.sln
 
       - name: Publish WPF app
-        run: >
-          dotnet publish .\src\CDriveMaster.UI\CDriveMaster.UI.csproj
-          -c Release
-          -r win-x64
-          --self-contained true
-          /p:PublishSingleFile=true
-          /p:Version=${{ github.ref_name }}
-          /p:InformationalVersion=${{ github.ref_name }}
-          /p:DebugType=None
-          /p:DebugSymbols=false
-          -o .\publish_output
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $ver = $tag -replace '^v', ''
+
+          dotnet publish .\src\CDriveMaster.UI\CDriveMaster.UI.csproj `
+            -c Release `
+            -r win-x64 `
+            --self-contained true `
+            /p:PublishSingleFile=true `
+            /p:Version=$ver `
+            /p:InformationalVersion=$tag `
+            /p:DebugType=None `
+            /p:DebugSymbols=false `
+            -o .\publish_output
 
       - name: Compress package
         shell: pwsh
